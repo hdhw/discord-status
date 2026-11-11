@@ -1,0 +1,78 @@
+{
+  "client_id": "PASTE_YOUR_APPLICATION_ID_HERE",
+  "poll_seconds": 3,
+  "idle_minutes": 5,
+  "status_display": "details",
+  "notify": true,
+  "notify_seconds": 2,
+  "notify_position": "bottom-left",
+
+  "idle": { "details": "afk", "state": "probably getting snacks", "show_elapsed": true },
+
+  "default": { "details": "just vibing", "state": "on the computer", "show_elapsed": false },
+
+  "rules": [
+    { "title": "InPrivate|Incognito|Private Browsing", "keep_previous": true },
+
+    { "process": ["Discord.exe"], "title": "^@", "details": "in DMs", "state": "on Discord" },
+    { "process": ["Discord.exe"], "title": "^#.+ \\| .+ - Discord",
+      "details": "chatting in a server", "state": "on Discord" },
+    { "process": ["Discord.exe"], "details": "hanging out on Discord" },
+
+    { "process": ["Code.exe"],
+      "title": "^(?:● )?(?P<file>.+?) - (?P<folder>.+?) - Visual Studio Code",
+      "details": "coding in {folder}", "state": "editing {file}" },
+    { "process": ["Code.exe"], "details": "coding", "state": "in VS Code" },
+    { "process": ["devenv.exe"], "details": "coding in Visual Studio" },
+    { "process": ["idea64.exe", "pycharm64.exe", "rider64.exe"], "details": "coding in a JetBrains IDE" },
+    { "process": ["GitHubDesktop.exe"], "details": "pushing code", "state": "in GitHub Desktop" },
+    { "process": ["WindowsTerminal.exe", "powershell.exe", "pwsh.exe", "cmd.exe", "mintty.exe"],
+      "details": "in the terminal" },
+
+    { "process": ["RobloxStudioBeta.exe"], "title": "^(?P<place>.+?) - Roblox Studio",
+      "details": "building in Roblox Studio", "state": "{place}" },
+    { "process": ["RobloxPlayerBeta.exe"], "details": "playing Roblox" },
+    { "process": ["Unity.exe", "Unity Hub.exe"], "details": "game dev in Unity" },
+    { "process": ["UnrealEditor.exe"], "details": "game dev in Unreal" },
+    { "process": ["Godot.exe"], "details": "game dev in Godot" },
+    { "process": ["javaw.exe"], "title": "^Minecraft", "details": "playing Minecraft" },
+
+    { "process": ["blender.exe"], "details": "3D modeling in Blender" },
+    { "process": ["Photoshop.exe"], "details": "editing in Photoshop" },
+    { "process": ["krita.exe"], "details": "drawing in Krita" },
+    { "process": ["Resolve.exe"], "details": "editing video", "state": "in DaVinci Resolve" },
+    { "process": ["Adobe Premiere Pro.exe"], "details": "editing video", "state": "in Premiere Pro" },
+    { "process": ["obs64.exe"], "details": "recording / streaming", "state": "in OBS" },
+    { "process": ["FL64.exe"], "details": "making music", "state": "in FL Studio" },
+    { "process": ["Audacity.exe"], "details": "editing audio", "state": "in Audacity" },
+    { "process": ["Spotify.exe"], "type": 2, "details": "picking music" },
+
+    { "process": ["WINWORD.EXE"], "details": "writing something", "state": "in Word" },
+    { "process": ["EXCEL.EXE"], "details": "spreadsheet time", "state": "in Excel" },
+    { "process": ["POWERPNT.EXE"], "details": "making a PowerPoint" },
+
+    { "process": ["steamwebhelper.exe", "steam.exe"], "details": "browsing Steam" },
+    { "process": ["EpicGamesLauncher.exe"], "details": "browsing Epic Games" },
+    { "process": ["Taskmgr.exe"], "details": "in Task Manager", "state": "something's lagging" },
+    { "process": ["explorer.exe"], "title": ".", "details": "digging through files" },
+
+    { "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+      "title": "^(?:\\(\\d+\\) )?(?P<song>.+?) - YouTube Music",
+      "type": 2, "details": "listening on YouTube Music", "state": "{song}" },
+    { "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+      "title": "^(?:\\(\\d+\\) )?YouTube(?: - |$)", "details": "browsing YouTube" },
+    { "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+      "title": "^(?:\\(\\d+\\) )?(?P<video>.+?) - YouTube(?: - |$)",
+      "type": 3, "details": "watching YouTube", "state": "{video}" },
+    { "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+      "title": " - Twitch", "type": 3, "details": "watching Twitch" },
+    { "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+      "title": "Netflix", "type": 3, "details": "watching Netflix" },
+    { "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+      "title": "· GitHub|GitHub - ", "details": "browsing GitHub" },
+    { "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+      "title": "Reddit", "details": "scrolling Reddit" },
+    { "process": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+      "details": "browsing the web", "show_elapsed": false }
+  ]
+}

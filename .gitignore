@@ -1,0 +1,8 @@
+# Personal settings (your app ID and rules) - copy from config.example.json
+config.json
+
+# Runtime logs
+status.log
+status.log.old
+
+__pycache__/
