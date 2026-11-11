@@ -13,7 +13,20 @@ doesn't need your account token and isn't a selfbot.
 - Optional small popup in the corner whenever your status changes
 - Starts with Windows if you want it to
 
-## Setup
+## Quick start (no Python needed)
+
+1. Download **DiscordStatus.exe** from the
+   [latest release](https://github.com/lemx33/discord-status/releases/latest).
+2. Run it. Windows may show *"Windows protected your PC"* because the app isn't
+   code-signed. Click **More info → Run anyway**.
+3. The setup window walks you through creating a Discord application and pasting its
+   Application ID. Tick **Start with Windows** if you want it running all the time.
+
+Open `DiscordStatus.exe` again any time to stop it, toggle start with Windows, or edit your
+rules. Settings are stored in `%APPDATA%\DiscordStatus\config.json`; the rules work the
+same as described in [Writing rules](#writing-rules).
+
+## Setup (running from source)
 
 1. **Install Python** from [python.org](https://www.python.org/downloads/). In the
    installer, tick **"Add python.exe to PATH"**.
@@ -27,8 +40,8 @@ doesn't need your account token and isn't a selfbot.
    3. Optional: upload an **App Icon**. It's the picture on your status card.
    4. Copy the **Application ID**.
 
-4. **Configure.** Copy `config.example.json` to `config.json` (or just run the script once
-   and it will copy it for you). Open `config.json` and paste your Application ID into
+4. **Configure.** Run `start.bat` once and a setup window asks for your Application ID.
+   Or copy `config.example.json` to `config.json` yourself and paste the ID into
    `client_id`.
 
 5. **Turn on activity sharing** in Discord: *User Settings → Activity Privacy → Share your
@@ -93,10 +106,16 @@ private browser windows.
 The script only talks to the Discord app running on your PC. It doesn't send anything
 anywhere else, and `status.log` only records the statuses it set.
 
+## Building the exe
+
+Run `build.bat`. It installs PyInstaller into a local `.build-venv` folder (not your main
+Python) and writes `dist\DiscordStatus.exe`.
+
 ## Troubleshooting
 
 - **Nothing shows on my profile:** check that `client_id` is set, Discord is running, and
-  activity sharing is on (setup step 5). Then read `status.log`.
+  activity sharing is on (setup step 5). Then read `status.log` (next to `status.py`, or
+  in `%APPDATA%\DiscordStatus` for the exe).
 - **An app shows the default status:** its .exe name doesn't match a rule. Check Task
   Manager → Details and add a rule.
 - **Status changes are a bit delayed:** Discord only accepts a few updates every 20

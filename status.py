@@ -6,8 +6,12 @@ config.json (created from config.example.json on first run), which is
 reloaded automatically when it changes.
 
 Usage:
-    python status.py            run (use pythonw.exe to run without a console)
-    python status.py --dry-run  print what would be shown, don't touch Discord
+    python status.py              run (use pythonw.exe to run without a console)
+    python status.py --dry-run    print what would be shown, don't touch Discord
+    python status.py --autostart  start quietly (no setup or control windows)
+
+Built as DiscordStatus.exe (see build.bat), settings live in
+%APPDATA%\\DiscordStatus instead of next to the script.
 """
 
 import ctypes
@@ -20,9 +24,16 @@ import sys
 import time
 import uuid
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+FROZEN = getattr(sys, "frozen", False)  # running as DiscordStatus.exe
+if FROZEN:
+    HERE = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "DiscordStatus")
+    BUNDLE = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    os.makedirs(HERE, exist_ok=True)
+else:
+    HERE = BUNDLE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "config.json")
-EXAMPLE_CONFIG_PATH = os.path.join(HERE, "config.example.json")
+EXAMPLE_CONFIG_PATH = os.path.join(BUNDLE, "config.example.json")
+ICON_PATH = os.path.join(BUNDLE, "icon.ico")
 PLACEHOLDER_ID = "PASTE_YOUR_APPLICATION_ID_HERE"
 LOG_PATH = os.path.join(HERE, "status.log")
 
@@ -164,7 +175,8 @@ class _Blank(dict):
 
 
 def load_config():
-    with open(CONFIG_PATH, encoding="utf-8") as f:
+    # utf-8-sig: accept files saved with a BOM (some Windows editors add one).
+    with open(CONFIG_PATH, encoding="utf-8-sig") as f:
         cfg = json.load(f)
     for rule in cfg.get("rules", []):
         rule["_procs"] = {p.lower() for p in rule.get("process", [])}
@@ -237,9 +249,9 @@ def build_activity(rule, groups, started, status_display=None):
 
 def log(msg):
     line = time.strftime("%Y-%m-%d %H:%M:%S ") + msg
-    if sys.stdout is not None:
+    if sys.stdout is not None and not FROZEN:
         print(line, flush=True)
-    else:  # pythonw: no console, write to a small log instead
+    else:  # pythonw or the exe: no console, write to a small log instead
         try:
             if os.path.exists(LOG_PATH) and os.path.getsize(LOG_PATH) > 256_000:
                 os.replace(LOG_PATH, LOG_PATH + ".old")
@@ -260,6 +272,94 @@ def claim_single_instance():
     if not handle or ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
         return None
     return handle
+
+
+# A named event lets a second launch (the control window) stop the running copy.
+WAIT_OBJECT_0 = 0
+kernel32.CreateEventW.restype = wt.HANDLE
+kernel32.CreateEventW.argtypes = [ctypes.c_void_p, wt.BOOL, wt.BOOL, wt.LPCWSTR]
+kernel32.SetEvent.argtypes = [wt.HANDLE]
+kernel32.ResetEvent.argtypes = [wt.HANDLE]
+kernel32.WaitForSingleObject.argtypes = [wt.HANDLE, wt.DWORD]
+_stop_event = kernel32.CreateEventW(None, True, False, "Local\\DiscordStatusPresenceStop")
+
+
+def request_stop():
+    """Ask the running copy to exit (called from the control window)."""
+    if _stop_event:
+        kernel32.SetEvent(_stop_event)
+
+
+def wait_for_stop(seconds):
+    """Sleep up to `seconds`; return True if a stop was requested."""
+    if not _stop_event:
+        time.sleep(seconds)
+        return False
+    return kernel32.WaitForSingleObject(_stop_event, int(seconds * 1000)) == WAIT_OBJECT_0
+
+
+# --------------------------------------------------------------------------
+# Setup helpers: config file, Application ID, start with Windows
+# --------------------------------------------------------------------------
+
+def ensure_config():
+    if not os.path.exists(CONFIG_PATH):
+        import shutil
+        shutil.copyfile(EXAMPLE_CONFIG_PATH, CONFIG_PATH)
+        log("created config.json from config.example.json")
+
+
+def current_client_id():
+    try:
+        value = str(load_config().get("client_id", "")).strip()
+    except (OSError, ValueError, re.error):
+        return ""
+    return "" if value == PLACEHOLDER_ID else value
+
+
+def save_client_id(client_id):
+    """Write client_id into config.json, keeping the rest of the file as-is."""
+    with open(CONFIG_PATH, encoding="utf-8-sig") as f:
+        text = f.read()
+    new, count = re.subn(r'("client_id"\s*:\s*)"[^"]*"',
+                         lambda m: m.group(1) + json.dumps(client_id), text, count=1)
+    if not count:
+        data = json.loads(text)
+        data["client_id"] = client_id
+        new = json.dumps(data, indent=2)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        f.write(new)
+
+
+def startup_shortcut():
+    appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(appdata, "Microsoft", "Windows", "Start Menu", "Programs",
+                        "Startup", "Discord Status.lnk")
+
+
+def autostart_enabled():
+    return os.path.exists(startup_shortcut())
+
+
+def set_autostart(enabled):
+    path = startup_shortcut()
+    if not enabled:
+        if os.path.exists(path):
+            os.remove(path)
+        return
+    if FROZEN:
+        target, args = sys.executable, "--autostart"
+    else:
+        target = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        args = '"%s" --autostart' % os.path.abspath(__file__)
+    import subprocess
+    env = dict(os.environ, DS_LNK=path, DS_TARGET=target, DS_ARGS=args,
+               DS_DIR=os.path.dirname(target if FROZEN else os.path.abspath(__file__)))
+    script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:DS_LNK);"
+              "$s.TargetPath = $env:DS_TARGET; $s.Arguments = $env:DS_ARGS;"
+              "$s.WorkingDirectory = $env:DS_DIR; $s.Save()")
+    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                   env=env, check=True, creationflags=0x08000000)  # CREATE_NO_WINDOW
 
 
 # --------------------------------------------------------------------------
@@ -418,17 +518,42 @@ class Toast:
 
 def main():
     dry_run = "--dry-run" in sys.argv
+    quiet = "--autostart" in sys.argv  # launched at login: never open windows
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # crisp windows on scaled displays
+    except (AttributeError, OSError):
+        pass
+    ensure_config()
+    app = sys.modules[__name__]
+
     if not dry_run:
         global _instance_lock  # keep the mutex alive for the process lifetime
         _instance_lock = claim_single_instance()
         if _instance_lock is None:
-            log("another copy is already running, exiting")
+            if quiet:
+                log("another copy is already running, exiting")
+            else:
+                import ui
+                ui.run_control(app)
             return
-
-    if not os.path.exists(CONFIG_PATH):
-        import shutil
-        shutil.copyfile(EXAMPLE_CONFIG_PATH, CONFIG_PATH)
-        log("created config.json from config.example.json")
+        kernel32.ResetEvent(_stop_event)
+        try:
+            load_config()
+        except (OSError, ValueError, re.error) as e:
+            log("config.json has a mistake: %s" % e)
+            if not quiet:
+                import ui
+                ui.show_error("Your settings file has a mistake in it:\n\n%s\n\n"
+                              "Fix it, or delete it to start fresh:\n%s" % (e, CONFIG_PATH))
+            return
+        if not current_client_id():
+            if quiet:
+                log("no Application ID yet: open the app (or status.py) once to set it up")
+                return
+            import ui
+            if not ui.run_setup(app):
+                log("setup cancelled")
+                return
 
     toast = None
     try:
@@ -437,15 +562,16 @@ def main():
     except Exception as e:  # no Tk, bad config, etc: run without popups
         log("popups disabled: %s" % e)
 
+    announce = not quiet and not dry_run
     if toast is None:
-        presence_loop(dry_run, None)
+        presence_loop(dry_run, None, announce)
         return
 
     import threading
 
     def worker():
         try:
-            presence_loop(dry_run, toast)
+            presence_loop(dry_run, toast, announce)
         except Exception as e:
             log("crashed: %r" % e)
         finally:
@@ -455,9 +581,14 @@ def main():
     toast.run()
 
 
-def presence_loop(dry_run, toast):
+def presence_loop(dry_run, toast, announce=False):
     cfg, cfg_mtime = load_config(), os.path.getmtime(CONFIG_PATH)
     last_toast = None
+    if toast and announce:
+        # Started by hand: confirm it's running, since there's no window.
+        toast.show("Discord Status is running",
+                   "open it again to stop or change settings" if FROZEN else "",
+                   3, cfg.get("notify_position", "bottom-right"))
     ipc = None
     next_connect = 0.0
     current_key, current_payload, started = object(), object(), time.time()
@@ -535,7 +666,12 @@ def presence_loop(dry_run, toast):
                         ipc.close()
                         ipc, next_connect = None, time.time() + 15
 
-        time.sleep(cfg.get("poll_seconds", 3))
+        if wait_for_stop(cfg.get("poll_seconds", 3)):
+            break
+
+    if ipc is not None:
+        ipc.close()  # Discord clears the activity when the pipe closes
+    log("stopped")
 
 
 if __name__ == "__main__":

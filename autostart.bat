@@ -10,5 +10,5 @@ powershell -NoProfile -Command ^
   "$py = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source;" ^
   "if (-not $py) { 'pythonw.exe not found - install Python from python.org and tick \"Add to PATH\"'; exit 1 }" ^
   "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk);" ^
-  "$s.TargetPath = $py; $s.Arguments = '\"' + $env:SCRIPT + '\"';" ^
+  "$s.TargetPath = $py; $s.Arguments = '\"' + $env:SCRIPT + '\" --autostart';" ^
   "$s.WorkingDirectory = Split-Path $env:SCRIPT; $s.Save(); 'autostart added: ' + $lnk"

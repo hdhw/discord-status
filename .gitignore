@@ -6,3 +6,9 @@ status.log
 status.log.old
 
 __pycache__/
+
+# Build output (build.bat)
+.build-venv/
+build/
+dist/
+*.spec
