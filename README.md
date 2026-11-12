@@ -42,8 +42,11 @@ picking music"). You can:
   fills in the right .exe name for you, so there's no digging through Task Manager.
 - **Test a window** to see which rule an app would use right now. This helps when a rule
   doesn't seem to work because another rule above it wins.
-- Change the idle ("afk") status, the "no rule fits" status, the popup and your Application
-  ID on the **General** tab.
+- Set up your away ("afk") status on the **Away** tab. It can say different things
+  depending on the time of day (say, "sleeping" between 11pm and 7am) or how long you've
+  been gone ("afk" at first, "gone for a while" after an hour).
+- Change the "no rule fits" status, the popup and your Application ID on the **General**
+  tab.
 
 Changes apply a few seconds after you click **Save**, and the previous version is kept as
 `config.backup.json`. The settings live in `%APPDATA%\DiscordStatus\config.json`, and
@@ -117,6 +120,28 @@ To find a program's .exe name, open Task Manager → *Details* while it's runnin
 | `poll_seconds` | `3` | How often to check the focused window. |
 | `idle_minutes` | `5` | Switch to the `idle` status after this long without input. `0` turns it off. |
 | `idle` / `default` | | Status when you're idle, or when no rule matches. `null` clears it. |
+| `idle_rules` | `[]` | Away statuses for particular times or idle lengths, checked before `idle`. See below. |
+
+### Away messages
+
+`idle_rules` works like `rules`: the first one that fits wins, and if none do, `idle` is
+used. Each entry takes the same text fields (`details`, `state`, `type`, `show_elapsed`)
+plus any of:
+
+| Field | What it does |
+|---|---|
+| `from` / `to` | Only between these times of day, like `"23:00"` and `"07:00"`. Can cross midnight. |
+| `min_minutes` | Only once you've been idle at least this long. |
+| `max_minutes` | Only while you've been idle less than this long. |
+
+```json
+"idle_rules": [
+  { "from": "23:00", "to": "07:00", "details": "sleeping", "state": "zzz" },
+  { "min_minutes": 60, "details": "gone for a while" }
+]
+```
+
+The elapsed timer on an away status counts from when you actually went idle.
 | `status_display` | `"details"` | What the member list shows next to your name: `"name"`, `"details"` or `"state"`. |
 | `notify` | `true` | Show a popup when your status changes. |
 | `notify_seconds` | `2` | How long the popup stays up. |

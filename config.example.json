@@ -9,6 +9,11 @@
 
   "idle": { "details": "afk", "state": "probably getting snacks", "show_elapsed": true },
 
+  "idle_rules": [
+    { "from": "00:00", "to": "07:00", "details": "probably asleep", "state": "zzz" },
+    { "min_minutes": 60, "details": "away for a while", "state": "be right back (maybe)" }
+  ],
+
   "default": { "details": "just vibing", "state": "on the computer", "show_elapsed": false },
 
   "rules": [

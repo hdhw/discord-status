@@ -233,22 +233,74 @@ def compile_rules(rules):
     return out
 
 
+def clock_minutes(text):
+    """Parse a time of day like "23:00", "7", "7:30am" or "11 PM" into minutes after midnight."""
+    m = re.fullmatch(r"\s*(\d{1,2})(?:[:.](\d{2}))?\s*(?:([ap])\.?\s*m\.?)?\s*", str(text), re.I)
+    if not m:
+        raise ValueError("%r isn't a time (try something like 23:00 or 11pm)" % text)
+    hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if m.group(3):
+        if not 1 <= hour <= 12:
+            raise ValueError("%r isn't a time" % text)
+        hour = hour % 12 + (12 if m.group(3).lower() == "p" else 0)
+    if hour > 23 or minute > 59:
+        raise ValueError("%r isn't a time" % text)
+    return hour * 60 + minute
+
+
+def compile_idle_rules(rules):
+    """Copy the away rules with their times parsed (raises ValueError on a bad time)."""
+    out = []
+    for rule in rules:
+        rule = dict(rule)
+        rule["_from"] = clock_minutes(rule["from"]) if rule.get("from") else 0
+        rule["_to"] = clock_minutes(rule["to"]) if rule.get("to") else 24 * 60
+        out.append(rule)
+    return out
+
+
+def _in_window(start, end, now):
+    if start == end:
+        return True
+    if start < end:
+        return start <= now < end
+    return now >= start or now < end  # wraps past midnight, like 23:00 to 07:00
+
+
+def match_idle(cfg, idle_secs, now=None):
+    """Return (key, rule) for the away status: the first idle_rules entry that fits
+    the time of day and how long you've been away, else the plain `idle` status."""
+    now = now or time.localtime()
+    clock = now.tm_hour * 60 + now.tm_min
+    away = idle_secs / 60.0
+    for i, rule in enumerate(cfg.get("idle_rules", [])):
+        if not _in_window(rule["_from"], rule["_to"], clock):
+            continue
+        if away < (rule.get("min_minutes") or 0):
+            continue
+        if rule.get("max_minutes") and away >= rule["max_minutes"]:
+            continue
+        return "idle%d" % i, rule
+    return "idle", cfg.get("idle")
+
+
 def load_config():
     cfg = read_config()
     cfg["rules"] = compile_rules(cfg.get("rules", []))
+    cfg["idle_rules"] = compile_idle_rules(cfg.get("idle_rules", []))
     return cfg
 
 
 def format_config(cfg):
     """JSON with one line per setting and per rule, so it stays hand-editable."""
-    items = ["  %s: %s" % (json.dumps(k), json.dumps(v, ensure_ascii=False))
-             for k, v in cfg.items() if k != "rules"]
-    rules = cfg.get("rules", [])
-    if rules:
-        items.append('  "rules": [\n%s\n  ]' % ",\n".join(
-            "    " + json.dumps(r, ensure_ascii=False) for r in rules))
-    else:
-        items.append('  "rules": []')
+    def value(v):
+        if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+            return "[\n%s\n  ]" % ",\n".join("    " + json.dumps(x, ensure_ascii=False)
+                                              for x in v)
+        return json.dumps(v, ensure_ascii=False)
+
+    items = ["  %s: %s" % (json.dumps(k), value(v)) for k, v in cfg.items() if k != "rules"]
+    items.append('  "rules": %s' % value(cfg.get("rules", [])))
     return "{\n" + ",\n".join(items) + "\n}\n"
 
 
@@ -766,8 +818,10 @@ def presence_loop(dry_run, toast, announce=False, on_change=None):
             cfg_mtime = mtime
 
         idle_after = cfg.get("idle_minutes", 0) * 60
-        if idle_after and idle_seconds() >= idle_after:
-            key, rule, groups = "idle", cfg.get("idle"), {}
+        idle_secs = idle_seconds()
+        if idle_after and idle_secs >= idle_after:
+            key, rule = match_idle(cfg, idle_secs)
+            groups = {}
         else:
             exe, title, pid = foreground()
             if pid == os.getpid():
@@ -783,7 +837,10 @@ def presence_loop(dry_run, toast, announce=False, on_change=None):
             payload = current_payload
         else:
             if key != current_key:
-                current_key, started = key, time.time()
+                # Away statuses count from when you actually left, so switching
+                # from "afk" to "gone for a while" doesn't reset the timer.
+                away = isinstance(key, str) and key.startswith("idle")
+                current_key, started = key, time.time() - (idle_secs if away else 0)
             payload = build_activity(rule, groups, started, cfg.get("status_display"))
 
         if payload != current_payload:

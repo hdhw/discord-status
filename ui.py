@@ -185,6 +185,40 @@ def describe_when(rule):
     return "   +   ".join(parts) or "any window"
 
 
+def format_clock(minutes):
+    """Minutes after midnight as "11 PM" or "7:30 AM"."""
+    hour, minute = divmod(minutes % (24 * 60), 60)
+    suffix = "AM" if hour < 12 else "PM"
+    hour = hour % 12 or 12
+    return ("%d %s" % (hour, suffix)) if minute == 0 else ("%d:%02d %s" % (hour, minute, suffix))
+
+
+def _format_minutes(n):
+    n = float(n)
+    if n >= 60 and n % 60 == 0:
+        return "%d h" % (n // 60)
+    return "%g min" % n
+
+
+def describe_away_when(app, rule):
+    parts = []
+    if rule.get("from") or rule.get("to"):
+        try:
+            start = app.clock_minutes(rule["from"]) if rule.get("from") else 0
+            end = app.clock_minutes(rule["to"]) if rule.get("to") else 0
+            parts.append("%s – %s" % (format_clock(start), format_clock(end)))
+        except ValueError:
+            parts.append("%s – %s" % (rule.get("from", "?"), rule.get("to", "?")))
+    low, high = rule.get("min_minutes"), rule.get("max_minutes")
+    if low and high:
+        parts.append("away %s to %s" % (_format_minutes(low), _format_minutes(high)))
+    elif low:
+        parts.append("away %s or more" % _format_minutes(low))
+    elif high:
+        parts.append("away less than %s" % _format_minutes(high))
+    return ",   ".join(parts) or "any time"
+
+
 def describe_shows(rule):
     if rule.get("keep_previous"):
         return "(leaves your status alone)"
@@ -465,6 +499,174 @@ class RuleDialog:
 
 
 # --------------------------------------------------------------------------
+# Editing one away message
+# --------------------------------------------------------------------------
+
+class AwayDialog:
+    def __init__(self, app, parent, rule=None):
+        self.app, self.parent = app, parent
+        self.original = dict(rule or {})
+        self.result = None
+        r = self.original
+
+        win = self.win = _dialog(app, parent, "Edit away message" if rule else
+                                 "New away message")
+        f = ttk.Frame(win, padding=16)
+        f.grid(sticky="nsew")
+        f.columnconfigure(1, weight=1)
+        width = 40
+
+        ttk.Label(f, text="Use this when…", font=HEADING).grid(row=0, column=0, columnspan=2,
+                                                              sticky="w")
+
+        def clock(key):
+            try:
+                return format_clock(app.clock_minutes(r[key])) if r.get(key) else ""
+            except ValueError:
+                return r[key]
+
+        # time of day
+        self.use_time = tk.BooleanVar(value=bool(r.get("from") or r.get("to")))
+        self.start = tk.StringVar(value=clock("from") or "11 PM")
+        self.end = tk.StringVar(value=clock("to") or "7 AM")
+        row = ttk.Frame(f)
+        row.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Checkbutton(row, text="it's between", variable=self.use_time,
+                        command=self.update_state).pack(side="left")
+        self.start_entry = ttk.Entry(row, textvariable=self.start, width=9)
+        self.start_entry.pack(side="left", padx=6)
+        ttk.Label(row, text="and").pack(side="left")
+        self.end_entry = ttk.Entry(row, textvariable=self.end, width=9)
+        self.end_entry.pack(side="left", padx=6)
+        _hint(f, "Like 11pm and 7am, or 23:00 and 07:00. It can go past midnight.",
+              row=2, column=0, columnspan=2, padx=(22, 0))
+
+        # how long away
+        self.use_min = tk.BooleanVar(value=bool(r.get("min_minutes")))
+        self.low = tk.StringVar(value="%g" % r["min_minutes"] if r.get("min_minutes") else "30")
+        row = ttk.Frame(f)
+        row.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        ttk.Checkbutton(row, text="I've been away at least", variable=self.use_min,
+                        command=self.update_state).pack(side="left")
+        self.low_entry = ttk.Spinbox(row, from_=1, to=1440, textvariable=self.low, width=6)
+        self.low_entry.pack(side="left", padx=6)
+        ttk.Label(row, text="minutes").pack(side="left")
+
+        self.use_max = tk.BooleanVar(value=bool(r.get("max_minutes")))
+        self.high = tk.StringVar(value="%g" % r["max_minutes"] if r.get("max_minutes")
+                                 else "60")
+        row = ttk.Frame(f)
+        row.grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Checkbutton(row, text="I've been away less than", variable=self.use_max,
+                        command=self.update_state).pack(side="left")
+        self.high_entry = ttk.Spinbox(row, from_=1, to=1440, textvariable=self.high, width=6)
+        self.high_entry.pack(side="left", padx=6)
+        ttk.Label(row, text="minutes").pack(side="left")
+        _hint(f, "Tick more than one and they all have to be true.", row=5, column=0,
+              columnspan=2, pady=(6, 0))
+
+        ttk.Separator(f).grid(row=6, column=0, columnspan=2, sticky="we", pady=14)
+
+        ttk.Label(f, text="…show this", font=HEADING).grid(row=7, column=0, columnspan=2,
+                                                           sticky="w")
+
+        def field(n, label, widget):
+            ttk.Label(f, text=label).grid(row=n, column=0, sticky="w", padx=(0, 10), pady=(6, 0))
+            widget.grid(row=n, column=1, sticky="we", pady=(6, 0))
+
+        self.kind = tk.StringVar(value=dict(ACTIVITY_TYPES).get(r.get("type", 0), "Playing"))
+        field(8, "Type", ttk.Combobox(f, textvariable=self.kind, state="readonly", width=16,
+                                      values=[name for _, name in ACTIVITY_TYPES]))
+        self.details = tk.StringVar(value=r.get("details", ""))
+        field(9, "Line 1", ttk.Entry(f, textvariable=self.details, width=width))
+        self.state = tk.StringVar(value=r.get("state", ""))
+        field(10, "Line 2", ttk.Entry(f, textvariable=self.state, width=width))
+        self.elapsed = tk.BooleanVar(value=r.get("show_elapsed", True))
+        ttk.Checkbutton(f, text="Show how long I've been away", variable=self.elapsed).grid(
+            row=11, column=1, sticky="w", pady=(6, 0))
+
+        self.error = ttk.Label(f, foreground=ERROR_FG, wraplength=380, justify="left")
+        self.error.grid(row=12, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        buttons = ttk.Frame(f)
+        buttons.grid(row=13, column=0, columnspan=2, sticky="e", pady=(8, 0))
+        ttk.Button(buttons, text="Cancel", command=win.destroy).pack(side="right")
+        ttk.Button(buttons, text="OK", command=self.ok).pack(side="right", padx=(0, 8))
+        win.bind("<Return>", self.ok)
+        win.bind("<Escape>", lambda _e: win.destroy())
+        self.update_state()
+
+    def update_state(self):
+        for flag, widgets in ((self.use_time, (self.start_entry, self.end_entry)),
+                              (self.use_min, (self.low_entry,)),
+                              (self.use_max, (self.high_entry,))):
+            for widget in widgets:
+                widget.state(["!disabled"] if flag.get() else ["disabled"])
+
+    def show(self):
+        _show_dialog(self.win, self.parent)
+        return self.result
+
+    def fail(self, message):
+        self.error.config(text=message)
+
+    def ok(self, _event=None):
+        rule = {}
+        if self.use_time.get():
+            try:
+                start = self.app.clock_minutes(self.start.get())
+                end = self.app.clock_minutes(self.end.get())
+            except ValueError as e:
+                return self.fail(str(e)[:1].upper() + str(e)[1:] + ".")
+            if start == end:
+                return self.fail("The start and end time are the same.")
+            rule["from"] = "%02d:%02d" % divmod(start, 60)
+            rule["to"] = "%02d:%02d" % divmod(end, 60)
+        for flag, var, key in ((self.use_min, self.low, "min_minutes"),
+                               (self.use_max, self.high, "max_minutes")):
+            if flag.get():
+                try:
+                    n = float(var.get())
+                except ValueError:
+                    return self.fail("Minutes have to be a number.")
+                if n <= 0:
+                    return self.fail("Minutes have to be more than 0.")
+                rule[key] = int(n) if n.is_integer() else n
+        if rule.get("min_minutes") and rule.get("max_minutes") and \
+                rule["min_minutes"] >= rule["max_minutes"]:
+            return self.fail("“At least” has to be smaller than “less than”, or it can "
+                             "never be true.")
+
+        details, state = self.details.get().strip(), self.state.get().strip()
+        if not details and not state:
+            return self.fail("Type what your status should say in Line 1.")
+        for label, text in (("Line 1", details), ("Line 2", state)):
+            if len(text) == 1:
+                return self.fail("%s needs at least 2 characters (Discord's rule)." % label)
+        if not rule and not messagebox.askyesno(
+                TITLE, "Nothing is ticked under “Use this when”, so this message is always "
+                       "used and the ones below it never are.\n\nKeep it anyway?",
+                parent=self.win):
+            return
+
+        kind = {name: n for n, name in ACTIVITY_TYPES}[self.kind.get()]
+        if kind:
+            rule["type"] = kind
+        if details:
+            rule["details"] = details
+        if state:
+            rule["state"] = state
+        if not self.elapsed.get():
+            rule["show_elapsed"] = False
+        edited = {"from", "to", "min_minutes", "max_minutes", "type", "details", "state",
+                  "show_elapsed"}
+        for key, value in self.original.items():
+            if key not in edited:
+                rule[key] = value
+        self.result = rule
+        self.win.destroy()
+
+
+# --------------------------------------------------------------------------
 # The rules editor
 # --------------------------------------------------------------------------
 
@@ -473,7 +675,9 @@ class RulesEditor:
         self.app, self.parent = app, parent
         self.cfg = app.read_config()
         self.rules = [dict(r) for r in self.cfg.get("rules", [])]
+        self.away = [dict(r) for r in self.cfg.get("idle_rules", [])]
         self.dirty = False
+        self.vars = []
 
         win = self.win = _dialog(app, parent, "Discord Status rules", resizable=True)
         win.protocol("WM_DELETE_WINDOW", self.close)
@@ -482,8 +686,11 @@ class RulesEditor:
 
         notebook = self.notebook = ttk.Notebook(outer)
         notebook.pack(fill="both", expand=True)
-        notebook.add(self._rules_tab(notebook), text="  Rules  ")
-        notebook.add(self._general_tab(notebook), text="  General  ")
+        self.tabs = {}
+        for name, build in (("Rules", self._rules_tab), ("Away", self._away_tab),
+                            ("General", self._general_tab)):
+            self.tabs[name] = build(notebook)
+            notebook.add(self.tabs[name], text="  %s  " % name)
 
         bottom = ttk.Frame(outer)
         bottom.pack(fill="x", pady=(10, 0))
@@ -495,7 +702,135 @@ class RulesEditor:
         win.bind("<Control-s>", lambda _e: self.save())
 
         self.refresh()
+        self.refresh_away()
         self.dirty = False
+
+    def _var(self, kind, value):
+        v = kind(value=value)
+        v.trace_add("write", lambda *_: self.changed())
+        self.vars.append(v)
+        return v
+
+    def _make_list(self, parent, columns, height):
+        """A Treeview with a scrollbar; `columns` is [(id, heading, width)]."""
+        line = tkfont.nametofont("TkDefaultFont").metrics("linespace")
+        ttk.Style(parent).configure("Rules.Treeview", rowheight=line + 8)
+        box = ttk.Frame(parent)
+        tree = ttk.Treeview(box, columns=[c[0] for c in columns], show="headings",
+                            height=height, selectmode="browse", style="Rules.Treeview")
+        for col, text, width in columns:
+            tree.heading(col, text=text, anchor="w")
+            tree.column(col, width=width, minwidth=30, stretch=col != "n", anchor="w")
+        scroll = ttk.Scrollbar(box, orient="vertical", command=tree.yview)
+        tree.config(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        return box, tree
+
+    # ---- away tab ----
+    def _away_tab(self, notebook):
+        cfg = self.cfg
+        tab = ttk.Frame(notebook, padding=12)
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(2, weight=1)
+
+        top = ttk.Frame(tab)
+        top.grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(top, text="Count me as away after").pack(side="left")
+        self.v_idle_min = self._var(tk.StringVar, str(cfg.get("idle_minutes", 5)))
+        ttk.Spinbox(top, from_=0, to=240, textvariable=self.v_idle_min, width=5).pack(
+            side="left", padx=6)
+        ttk.Label(top, text="minutes without touching the mouse or keyboard (0 = never)",
+                  foreground=HINT_FG).pack(side="left")
+
+        ttk.Label(tab, wraplength=640, justify="left", text=(
+            "Your away status can change with the time of day, or with how long you've been "
+            "gone. The first message that fits is used.")).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(12, 8))
+
+        box, tree = self._make_list(tab, [("n", "#", 40), ("when", "Use when", 300),
+                                          ("shows", "My status says", 320)], height=7)
+        box.grid(row=2, column=0, sticky="nsew")
+        self.away_tree = tree
+        tree.bind("<Double-1>", lambda _e: self.away_edit())
+        tree.bind("<Return>", lambda _e: self.away_edit())
+        tree.bind("<Delete>", lambda _e: self.away_delete())
+
+        side = ttk.Frame(tab)
+        side.grid(row=2, column=1, sticky="n", padx=(10, 0))
+        for text, command in (("Add…", self.away_add), ("Edit…", self.away_edit),
+                              ("Delete", self.away_delete), (None, None),
+                              ("Move up", lambda: self.away_move(-1)),
+                              ("Move down", lambda: self.away_move(1))):
+            if text is None:
+                ttk.Frame(side, height=12).pack()
+            else:
+                ttk.Button(side, text=text, command=command, width=16).pack(fill="x", pady=2)
+
+        idle = cfg.get("idle") or {}
+        ttk.Label(tab, text="If none of those fit", font=HEADING).grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(14, 2))
+        rest = ttk.Frame(tab)
+        rest.grid(row=4, column=0, sticky="we")
+        rest.columnconfigure(1, weight=1)
+        self.v_idle1 = self._var(tk.StringVar, idle.get("details", ""))
+        self.v_idle2 = self._var(tk.StringVar, idle.get("state", ""))
+        for n, (label, var) in enumerate((("Line 1", self.v_idle1), ("Line 2", self.v_idle2))):
+            ttk.Label(rest, text=label).grid(row=n, column=0, sticky="w", padx=(0, 12), pady=3)
+            ttk.Entry(rest, textvariable=var, width=40).grid(row=n, column=1, sticky="we",
+                                                             pady=3)
+        return tab
+
+    def refresh_away(self, select=None):
+        tree = self.away_tree
+        tree.delete(*tree.get_children())
+        for i, rule in enumerate(self.away):
+            tree.insert("", "end", iid=str(i), values=(
+                i + 1, describe_away_when(self.app, rule), describe_shows(rule)))
+        if select is not None and self.away:
+            iid = str(max(0, min(select, len(self.away) - 1)))
+            tree.selection_set(iid)
+            tree.focus(iid)
+            tree.see(iid)
+
+    def _away_selected(self):
+        sel = self.away_tree.selection()
+        return int(sel[0]) if sel else None
+
+    def away_add(self):
+        rule = AwayDialog(self.app, self.win).show()
+        if rule is not None:
+            index = self._away_selected()
+            index = 0 if index is None else index
+            self.away.insert(index, rule)
+            self.refresh_away(select=index)
+            self.changed()
+
+    def away_edit(self):
+        index = self._away_selected()
+        if index is not None:
+            rule = AwayDialog(self.app, self.win, self.away[index]).show()
+            if rule is not None:
+                self.away[index] = rule
+                self.refresh_away(select=index)
+                self.changed()
+
+    def away_delete(self):
+        index = self._away_selected()
+        if index is not None and messagebox.askyesno(
+                TITLE, "Delete this away message?\n\n%s\n→ %s" % (
+                    describe_away_when(self.app, self.away[index]),
+                    describe_shows(self.away[index])), parent=self.win):
+            del self.away[index]
+            self.refresh_away(select=index)
+            self.changed()
+
+    def away_move(self, step):
+        index = self._away_selected()
+        if index is not None and 0 <= index + step < len(self.away):
+            self.away[index], self.away[index + step] = self.away[index + step], self.away[index]
+            self.refresh_away(select=index + step)
+            self.changed()
 
     # ---- rules tab ----
     def _rules_tab(self, notebook):
@@ -640,13 +975,7 @@ class RulesEditor:
         cfg = self.cfg
         tab = ttk.Frame(notebook, padding=14)
         tab.columnconfigure(1, weight=1)
-        self.vars = []
-
-        def var(kind, value):
-            v = kind(value=value)
-            v.trace_add("write", lambda *_: self.changed())
-            self.vars.append(v)
-            return v
+        var = self._var
 
         def section(row, text, pady=(0, 0)):
             ttk.Label(tab, text=text, font=HEADING).grid(row=row, column=0, columnspan=3,
@@ -680,20 +1009,6 @@ class RulesEditor:
         self.v_default2 = var(tk.StringVar, (default or {}).get("state", ""))
         field(6, "Line 2", ttk.Entry(tab, textvariable=self.v_default2, width=40))
 
-        idle = cfg.get("idle")
-        section(7, "When I'm away", pady=(14, 0))
-        self.v_idle_min = var(tk.StringVar, str(cfg.get("idle_minutes", 5)))
-        minutes = ttk.Frame(tab)
-        ttk.Spinbox(minutes, from_=0, to=240, textvariable=self.v_idle_min, width=5).pack(
-            side="left")
-        ttk.Label(minutes, text="minutes without touching the mouse or keyboard (0 = never)",
-                  foreground=HINT_FG).pack(side="left", padx=(8, 0))
-        field(8, "After", minutes)
-        self.v_idle1 = var(tk.StringVar, (idle or {}).get("details", ""))
-        field(9, "Line 1", ttk.Entry(tab, textvariable=self.v_idle1, width=40))
-        self.v_idle2 = var(tk.StringVar, (idle or {}).get("state", ""))
-        field(10, "Line 2", ttk.Entry(tab, textvariable=self.v_idle2, width=40))
-
         section(11, "Popup", pady=(14, 0))
         self.v_notify = var(tk.BooleanVar, bool(cfg.get("notify", True)))
         ttk.Checkbutton(tab, text="Show a small popup when my status changes",
@@ -720,24 +1035,30 @@ class RulesEditor:
         return block
 
     def _apply_general(self):
-        """Copy the General tab into self.cfg. Returns an error message or None."""
+        """Copy the Away and General tabs into self.cfg.
+        Returns None, or (tab name, error message)."""
         cfg = self.cfg
         client = re.sub(r"\s+", "", self.v_client.get())
         if not re.fullmatch(r"\d{17,20}", client):
-            return "The Application ID should be a long number (17–20 digits)."
+            return "General", "The Application ID should be a long number (17–20 digits)."
         try:
             idle_minutes = float(self.v_idle_min.get())
+        except ValueError:
+            return "Away", "The away minutes have to be a number."
+        try:
             notify_seconds = float(self.v_notify_secs.get())
         except ValueError:
-            return "Minutes and seconds have to be numbers."
-        if idle_minutes < 0 or notify_seconds <= 0:
-            return "Minutes and seconds can't be negative."
-        for label, text in (("No-rule Line 1", self.v_default1.get()),
-                            ("No-rule Line 2", self.v_default2.get()),
-                            ("Away Line 1", self.v_idle1.get()),
-                            ("Away Line 2", self.v_idle2.get())):
+            return "General", "The popup seconds have to be a number."
+        if idle_minutes < 0:
+            return "Away", "The away minutes can't be negative."
+        if notify_seconds <= 0:
+            return "General", "The popup seconds have to be more than 0."
+        for tab, label, text in (("General", "No-rule Line 1", self.v_default1.get()),
+                                 ("General", "No-rule Line 2", self.v_default2.get()),
+                                 ("Away", "Away Line 1", self.v_idle1.get()),
+                                 ("Away", "Away Line 2", self.v_idle2.get())):
             if len(text.strip()) == 1:
-                return "%s needs at least 2 characters (Discord's rule)." % label
+                return tab, "%s needs at least 2 characters (Discord's rule)." % label
 
         cfg["client_id"] = client
         cfg["status_display"] = {n: key for key, n in DISPLAYS}[self.v_display.get()]
@@ -753,14 +1074,16 @@ class RulesEditor:
             cfg["default"] = None
         cfg["idle"] = self._status_block(cfg.get("idle"), self.v_idle1.get(),
                                          self.v_idle2.get())
+        if self.away or "idle_rules" in cfg:
+            cfg["idle_rules"] = self.away
         return None
 
     # ---- saving ----
     def save(self):
         error = self._apply_general()
         if error:
-            self.notebook.select(1)
-            messagebox.showerror(TITLE, error, parent=self.win)
+            self.notebook.select(self.tabs[error[0]])
+            messagebox.showerror(TITLE, error[1], parent=self.win)
             return False
         self.cfg["rules"] = self.rules
         try:
