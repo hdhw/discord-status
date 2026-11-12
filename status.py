@@ -356,9 +356,12 @@ kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wt.BOOL, wt.LPCWSTR]
 def claim_single_instance():
     """Return a mutex handle, or None if another copy is already running."""
     handle = kernel32.CreateMutexW(None, False, "Local\\DiscordStatusPresence")
-    if not handle or ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+    if handle and ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+        # Let go of it, or this copy (e.g. an open control panel) would keep the
+        # mutex alive after the real one stops and block the next start.
+        kernel32.CloseHandle(handle)
         return None
-    return handle
+    return handle or None
 
 
 # A named event lets a second launch (the control window) stop the running copy.
