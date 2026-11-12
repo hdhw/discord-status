@@ -22,9 +22,24 @@ doesn't need your account token and isn't a selfbot.
 3. The setup window walks you through creating a Discord application and pasting its
    Application ID. Tick **Start with Windows** if you want it running all the time.
 
-Open `DiscordStatus.exe` again any time to stop it, toggle start with Windows, or edit your
-rules. Settings are stored in `%APPDATA%\DiscordStatus\config.json`; the rules work the
-same as described in [Writing rules](#writing-rules).
+Open `DiscordStatus.exe` again any time while it's running to get its control panel. From
+there you can stop it, toggle start with Windows, or click **Edit rules**.
+
+### Editing rules
+
+**Edit rules** opens a window listing every rule in plain words ("Spotify → Listening to:
+picking music"). You can:
+
+- **Add**, **edit**, **delete** and **move** rules. When adding one, **Pick an open app**
+  fills in the right .exe name for you, so there's no digging through Task Manager.
+- **Test a window** to see which rule an app would use right now. This helps when a rule
+  doesn't seem to work because another rule above it wins.
+- Change the idle ("afk") status, the "no rule fits" status, the popup and your Application
+  ID on the **General** tab.
+
+Changes apply a few seconds after you click **Save**, and the previous version is kept as
+`config.backup.json`. The settings live in `%APPDATA%\DiscordStatus\config.json`, and
+**Open file in Notepad** edits them by hand (see [Writing rules](#writing-rules)).
 
 ## Setup (running from source)
 
@@ -49,11 +64,15 @@ same as described in [Writing rules](#writing-rules).
 
 6. **Run it.** Double-click `start.bat`. It runs in the background with no window.
    `stop.bat` stops it. If nothing shows up, check `status.log` in the same folder.
+   To open the rules editor, run `pythonw status.py` while it's running.
 
 7. **Optional: start with Windows.** Double-click `autostart.bat`. Run
    `autostart.bat remove` from a terminal to undo.
 
 ## Writing rules
+
+The rules editor covers the common cases. This section is for editing `config.json` by
+hand, or for the editor's "Regular expression" option.
 
 Rules are checked top to bottom, and the first match wins. A rule matches on the focused
 window's program (`process`, the .exe name), its title (`title`, a regular expression,
@@ -91,7 +110,7 @@ To find a program's .exe name, open Task Manager → *Details* while it's runnin
 | `idle_minutes` | `5` | Switch to the `idle` status after this long without input. `0` turns it off. |
 | `idle` / `default` | | Status when you're idle, or when no rule matches. `null` clears it. |
 | `status_display` | `"details"` | What the member list shows next to your name: `"name"`, `"details"` or `"state"`. |
-| `notify` | `true` | Show a popup when your status changes. Needs a restart to toggle. |
+| `notify` | `true` | Show a popup when your status changes. |
 | `notify_seconds` | `2` | How long the popup stays up. |
 | `notify_position` | `"bottom-left"` | `bottom-left`, `bottom-right`, `top-left` or `top-right`. |
 

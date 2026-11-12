@@ -61,20 +61,16 @@ class LASTINPUTINFO(ctypes.Structure):
     _fields_ = [("cbSize", wt.UINT), ("dwTime", wt.DWORD)]
 
 
-def foreground():
-    """Return (exe_name, window_title, pid) of the focused window."""
-    hwnd = user32.GetForegroundWindow()
-    if not hwnd:
-        return "", "", 0
+def window_title(hwnd):
     length = user32.GetWindowTextLengthW(hwnd)
     buf = ctypes.create_unicode_buffer(length + 1)
     user32.GetWindowTextW(hwnd, buf, length + 1)
-    title = buf.value
+    return buf.value
 
-    pid = wt.DWORD()
-    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+
+def exe_for_pid(pid):
     exe = ""
-    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if handle:
         try:
             size = wt.DWORD(1024)
@@ -83,7 +79,52 @@ def foreground():
                 exe = os.path.basename(path.value)
         finally:
             kernel32.CloseHandle(handle)
-    return exe, title, pid.value
+    return exe
+
+
+def foreground():
+    """Return (exe_name, window_title, pid) of the focused window."""
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return "", "", 0
+    pid = wt.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return exe_for_pid(pid.value), window_title(hwnd), pid.value
+
+
+EnumWindowsProc = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+user32.EnumWindows.argtypes = [EnumWindowsProc, wt.LPARAM]
+user32.IsWindowVisible.argtypes = [wt.HWND]
+DWMWA_CLOAKED = 14
+
+
+def list_windows():
+    """Return [(exe_name, title)] for the visible app windows, for the rule editor."""
+    found = []
+
+    def visit(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        if user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW:
+            return True
+        cloaked = wt.DWORD()  # hidden UWP windows still report as visible
+        try:
+            ctypes.windll.dwmapi.DwmGetWindowAttribute(
+                hwnd, DWMWA_CLOAKED, ctypes.byref(cloaked), ctypes.sizeof(cloaked))
+        except (AttributeError, OSError):
+            pass
+        if cloaked.value:
+            return True
+        title = window_title(hwnd)
+        pid = _window_pid(hwnd)
+        if title and pid != os.getpid():
+            exe = exe_for_pid(pid)
+            if exe and (exe, title) not in found:
+                found.append((exe, title))
+        return True
+
+    user32.EnumWindows(EnumWindowsProc(visit), 0)
+    return found
 
 
 def idle_seconds():
@@ -174,14 +215,60 @@ class _Blank(dict):
         return ""
 
 
-def load_config():
+def read_config():
+    """config.json as plain data (no compiled rules)."""
     # utf-8-sig: accept files saved with a BOM (some Windows editors add one).
     with open(CONFIG_PATH, encoding="utf-8-sig") as f:
-        cfg = json.load(f)
-    for rule in cfg.get("rules", []):
+        return json.load(f)
+
+
+def compile_rules(rules):
+    """Copy the rules and attach the precompiled matchers match() needs."""
+    out = []
+    for rule in rules:
+        rule = dict(rule)
         rule["_procs"] = {p.lower() for p in rule.get("process", [])}
         rule["_re"] = re.compile(rule["title"], re.I) if rule.get("title") else None
+        out.append(rule)
+    return out
+
+
+def load_config():
+    cfg = read_config()
+    cfg["rules"] = compile_rules(cfg.get("rules", []))
     return cfg
+
+
+def format_config(cfg):
+    """JSON with one line per setting and per rule, so it stays hand-editable."""
+    items = ["  %s: %s" % (json.dumps(k), json.dumps(v, ensure_ascii=False))
+             for k, v in cfg.items() if k != "rules"]
+    rules = cfg.get("rules", [])
+    if rules:
+        items.append('  "rules": [\n%s\n  ]' % ",\n".join(
+            "    " + json.dumps(r, ensure_ascii=False) for r in rules))
+    else:
+        items.append('  "rules": []')
+    return "{\n" + ",\n".join(items) + "\n}\n"
+
+
+def write_config(cfg):
+    """Save config.json atomically; the previous version goes to config.backup.json."""
+    text = format_config(cfg)
+    json.loads(text)  # never write something we can't read back
+    tmp = CONFIG_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    if os.path.exists(CONFIG_PATH):
+        import shutil
+        shutil.copyfile(CONFIG_PATH, os.path.join(HERE, "config.backup.json"))
+    for _ in range(20):  # the running copy may be reading it this instant
+        try:
+            os.replace(tmp, CONFIG_PATH)
+            return
+        except PermissionError:
+            time.sleep(0.05)
+    os.replace(tmp, CONFIG_PATH)
 
 
 def match(cfg, exe, title):
@@ -557,9 +644,8 @@ def main():
 
     toast = None
     try:
-        if load_config().get("notify", True):
-            toast = Toast()
-    except Exception as e:  # no Tk, bad config, etc: run without popups
+        toast = Toast()  # always created, so "notify" can be switched on live
+    except Exception as e:  # no Tk etc: run without popups
         log("popups disabled: %s" % e)
 
     announce = not quiet and not dry_run
@@ -600,9 +686,13 @@ def presence_loop(dry_run, toast, announce=False):
         try:
             mtime = os.path.getmtime(CONFIG_PATH)
             if mtime != cfg_mtime:
+                old_id = cfg.get("client_id")
                 cfg, cfg_mtime = load_config(), mtime
                 current_payload = object()  # force a resend
                 log("config reloaded")
+                if ipc is not None and cfg.get("client_id") != old_id:
+                    ipc.close()  # new Application ID: reconnect with it
+                    ipc, next_connect = None, 0.0
         except (OSError, ValueError, re.error) as e:
             log("config error, keeping old config: %s" % e)
             cfg_mtime = mtime
