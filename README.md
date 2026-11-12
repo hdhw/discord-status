@@ -10,6 +10,7 @@ doesn't need your account token and isn't a selfbot.
 - Windows only
 - Python 3.8+ with no extra packages
 - Rules live in a JSON file and reload when you save it
+- Tray icon with a rules editor, so you don't have to touch JSON
 - Optional small popup in the corner whenever your status changes
 - Starts with Windows if you want it to
 
@@ -22,8 +23,15 @@ doesn't need your account token and isn't a selfbot.
 3. The setup window walks you through creating a Discord application and pasting its
    Application ID. Tick **Start with Windows** if you want it running all the time.
 
-Open `DiscordStatus.exe` again any time while it's running to get its control panel. From
-there you can stop it, toggle start with Windows, or click **Edit rules**.
+While it's running, it has an icon in the system tray next to the clock. On Windows 11, new
+icons start out hidden behind the **^** arrow; drag it onto the taskbar to keep it visible.
+
+- **Click** the icon to edit your rules.
+- **Right-click** it to see your current status, edit rules, open the log, toggle start with
+  Windows, or quit.
+
+Opening `DiscordStatus.exe` again while it's running also shows a small control panel with
+the same options.
 
 ### Editing rules
 
@@ -64,7 +72,7 @@ Changes apply a few seconds after you click **Save**, and the previous version i
 
 6. **Run it.** Double-click `start.bat`. It runs in the background with no window.
    `stop.bat` stops it. If nothing shows up, check `status.log` in the same folder.
-   To open the rules editor, run `pythonw status.py` while it's running.
+   Click its tray icon to open the rules editor.
 
 7. **Optional: start with Windows.** Double-click `autostart.bat`. Run
    `autostart.bat remove` from a terminal to undo.

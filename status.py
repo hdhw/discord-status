@@ -517,6 +517,10 @@ class Toast:
     def stop(self):
         self.queue.put(("stop",))
 
+    def call(self, fn):
+        """Run fn on the Tk thread (for the tray menu)."""
+        self.queue.put(("call", fn))
+
     # -- main thread --
     def run(self):
         self.root.after(150, self._poll)
@@ -530,6 +534,11 @@ class Toast:
                 if item[0] == "stop":
                     self.root.destroy()
                     return
+                if item[0] == "call":
+                    # As its own event, so a window that waits (the rules editor)
+                    # doesn't hold up this polling loop.
+                    self.root.after(0, item[1])
+                    continue
                 self._display(*item[1:])
         except queue.Empty:
             pass
@@ -656,27 +665,83 @@ def main():
         presence_loop(dry_run, None, announce)
         return
 
+    icon, on_change = None, None
+    if not dry_run:
+        try:
+            icon, on_change = start_tray(toast)
+        except Exception as e:  # e.g. Explorer not running: carry on without it
+            log("tray icon disabled: %r" % e)
+
     import threading
 
     def worker():
         try:
-            presence_loop(dry_run, toast, announce)
+            presence_loop(dry_run, toast, announce, on_change)
         except Exception as e:
             log("crashed: %r" % e)
         finally:
             toast.stop()
 
     threading.Thread(target=worker, daemon=True).start()
-    toast.run()
+    try:
+        toast.run()
+    finally:
+        if icon:
+            icon.close()  # otherwise a dead icon lingers until you hover it
 
 
-def presence_loop(dry_run, toast, announce=False):
+def start_tray(toast):
+    """Tray icon with the settings menu. Returns (icon, on_status_change)."""
+    import tray
+    import ui
+    app = sys.modules[__name__]
+    current = ["starting…"]
+
+    def safe(fn):
+        def run():
+            try:
+                fn()
+            except Exception as e:
+                log("tray menu: %r" % e)
+        return run
+
+    def edit_rules():
+        toast.call(lambda: ui.open_rules_editor(app, toast.root))
+
+    def open_log():
+        if os.path.exists(LOG_PATH):
+            ui.open_in_notepad(LOG_PATH)
+
+    def toggle_autostart():
+        set_autostart(not autostart_enabled())
+
+    def menu():
+        now = current[0] if len(current[0]) <= 60 else current[0][:59] + "…"
+        return [("Now: " + now.replace("&", "&&"), None, False, False),
+                None,
+                ("Edit rules…", safe(edit_rules), False, True),
+                ("Open log", safe(open_log), False, True),
+                ("Start with Windows", safe(toggle_autostart), autostart_enabled(), True),
+                None,
+                ("Quit", request_stop, False, True)]
+
+    icon = tray.TrayIcon(ICON_PATH, "Discord Status", menu, on_click=safe(edit_rules))
+    icon.start()
+
+    def on_change(text):
+        current[0] = " · ".join(t for t in text if t)
+        icon.set_tooltip("Discord Status\n" + current[0])
+
+    return icon, on_change
+
+
+def presence_loop(dry_run, toast, announce=False, on_change=None):
     cfg, cfg_mtime = load_config(), os.path.getmtime(CONFIG_PATH)
     last_toast = None
     if toast and announce:
         # Started by hand: confirm it's running, since there's no window.
         toast.show("Discord Status is running",
-                   "open it again to stop or change settings" if FROZEN else "",
+                   "settings are in the tray icon" if on_change else "",
                    3, cfg.get("notify_position", "bottom-right"))
     ipc = None
     next_connect = 0.0
@@ -747,9 +812,12 @@ def presence_loop(dry_run, toast, announce=False):
                         # reconnects, config reloads or timer resets).
                         text = ((payload or {}).get("details", "status cleared"),
                                 (payload or {}).get("state", ""))
-                        if toast and cfg.get("notify", True) and text != last_toast:
-                            toast.show(text[0], text[1], cfg.get("notify_seconds", 3),
-                                       cfg.get("notify_position", "bottom-right"))
+                        if text != last_toast:
+                            if toast and cfg.get("notify", True):
+                                toast.show(text[0], text[1], cfg.get("notify_seconds", 3),
+                                           cfg.get("notify_position", "bottom-right"))
+                            if on_change:
+                                on_change(text)
                         last_toast = text
                     except ValueError as e:
                         log(str(e))

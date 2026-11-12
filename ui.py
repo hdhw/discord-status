@@ -38,8 +38,12 @@ def _window(app, title):
     root.title(title)
     root.resizable(False, False)
     _set_icon(app, root)
+    install_error_report(app, root)
+    return root
 
-    # The exe has no console, so a crash in a button would otherwise vanish silently.
+
+def install_error_report(app, root):
+    """The exe has no console, so a crash in a button would otherwise vanish silently."""
     def report(exc, value, tb):
         import traceback
         app.log("window error:\n" + "".join(traceback.format_exception(exc, value, tb)))
@@ -47,7 +51,6 @@ def _window(app, title):
                              % (value, app.LOG_PATH))
 
     root.report_callback_exception = report
-    return root
 
 
 def _show_centered(root):
@@ -67,22 +70,32 @@ def _dialog(app, parent, title, resizable=False):
     win = tk.Toplevel(parent)
     win.withdraw()
     win.title(title)
-    win.transient(parent)
+    if parent.winfo_viewable():
+        # Not for a hidden parent (opened from the tray): the dialog would stay hidden too.
+        win.transient(parent)
     win.resizable(resizable, resizable)
     _set_icon(app, win)
     return win
 
 
 def _show_dialog(win, parent):
-    """Center over the parent, make modal and wait until it closes."""
+    """Center over the parent (or the screen), make modal and wait until it closes."""
     win.update_idletasks()
     w, h = win.winfo_reqwidth(), win.winfo_reqheight()
-    x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
-    y = parent.winfo_rooty() + (parent.winfo_height() - h) // 3
+    if parent.winfo_viewable():
+        x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - h) // 3
+    else:
+        x = (win.winfo_screenwidth() - w) // 2
+        y = (win.winfo_screenheight() - h) // 3
     x = max(0, min(x, win.winfo_screenwidth() - w))
     y = max(0, min(y, win.winfo_screenheight() - h - 48))
     win.geometry("+%d+%d" % (x, y))
     win.deiconify()
+    if not parent.winfo_viewable():
+        win.lift()
+        win.attributes("-topmost", True)
+        win.after(300, lambda: win.winfo_exists() and win.attributes("-topmost", False))
     win.grab_set()
     win.focus_force()
     parent.wait_window(win)
@@ -784,16 +797,31 @@ class RulesEditor:
         _show_dialog(self.win, self.parent)
 
 
-def run_rules_editor(app, parent):
+_open_editor = None
+
+
+def open_rules_editor(app, parent):
+    """Open the rules editor, or bring it to the front if it's already open."""
+    global _open_editor
+    if _open_editor is not None and _open_editor.win.winfo_exists():
+        win = _open_editor.win
+        win.deiconify()
+        win.lift()
+        win.focus_force()
+        return
+    install_error_report(app, parent)
     try:
-        editor = RulesEditor(app, parent)
+        _open_editor = RulesEditor(app, parent)
     except (OSError, ValueError) as e:
         if messagebox.askyesno(TITLE, "Your settings file has a mistake, so the editor can't "
                                       "open it:\n\n%s\n\nOpen it in Notepad to fix it?" % e,
                                parent=parent):
             open_in_notepad(app.CONFIG_PATH)
         return
-    editor.show()
+    try:
+        _open_editor.show()
+    finally:
+        _open_editor = None
 
 
 # --------------------------------------------------------------------------
@@ -871,8 +899,9 @@ def run_control(app):
     ttk.Label(frame, text="Discord Status is running", font=("Segoe UI Semibold", 13)).grid(
         row=0, column=0, columnspan=3, sticky="w")
     ttk.Label(frame, wraplength=360, justify="left", text=(
-        "It's working in the background. Use Edit rules to change what your status says "
-        "for each app; changes apply as soon as you save.")).grid(
+        "It's working in the background, with an icon in the system tray (you may need to "
+        "click ^ next to the clock to see it). Use Edit rules to change what your status "
+        "says for each app; changes apply as soon as you save.")).grid(
         row=1, column=0, columnspan=3, sticky="w", pady=(4, 12))
 
     autostart = tk.BooleanVar(value=app.autostart_enabled())
@@ -895,7 +924,7 @@ def run_control(app):
         app.request_stop()
         root.destroy()
 
-    ttk.Button(frame, text="Edit rules", command=lambda: run_rules_editor(app, root)).grid(
+    ttk.Button(frame, text="Edit rules", command=lambda: open_rules_editor(app, root)).grid(
         row=3, column=0, sticky="we")
     ttk.Button(frame, text="Open log", command=open_log).grid(row=3, column=1, sticky="we",
                                                               padx=6)
