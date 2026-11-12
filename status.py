@@ -248,33 +248,52 @@ def clock_minutes(text):
     return hour * 60 + minute
 
 
+DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]  # matches tm_wday
+
+
+def day_number(name):
+    key = str(name).strip().lower()[:3]
+    if key not in DAY_NAMES:
+        raise ValueError("%r isn't a day (use mon, tue, wed, thu, fri, sat or sun)" % name)
+    return DAY_NAMES.index(key)
+
+
 def compile_idle_rules(rules):
-    """Copy the away rules with their times parsed (raises ValueError on a bad time)."""
+    """Copy the away rules with times and days parsed (raises ValueError if one is bad)."""
     out = []
     for rule in rules:
         rule = dict(rule)
         rule["_from"] = clock_minutes(rule["from"]) if rule.get("from") else 0
         rule["_to"] = clock_minutes(rule["to"]) if rule.get("to") else 24 * 60
+        rule["_days"] = {day_number(d) for d in rule.get("days") or []}
         out.append(rule)
     return out
 
 
-def _in_window(start, end, now):
+def _fits_time(rule, now):
+    """Time window and days. For a window past midnight (Fri 20:00 to 08:00), the
+    early-morning part belongs to the day it started: Sat 02:00 counts as Friday."""
+    start, end = rule["_from"], rule["_to"]
+    clock = now.tm_hour * 60 + now.tm_min
+    day = now.tm_wday
     if start == end:
-        return True
-    if start < end:
-        return start <= now < end
-    return now >= start or now < end  # wraps past midnight, like 23:00 to 07:00
+        in_window = True
+    elif start < end:
+        in_window = start <= clock < end
+    else:
+        in_window = clock >= start or clock < end
+        if clock < end:
+            day = (day - 1) % 7
+    return in_window and (not rule["_days"] or day in rule["_days"])
 
 
 def match_idle(cfg, idle_secs, now=None):
     """Return (key, rule) for the away status: the first idle_rules entry that fits
-    the time of day and how long you've been away, else the plain `idle` status."""
+    the day, time and how long you've been away, else the plain `idle` status."""
     now = now or time.localtime()
-    clock = now.tm_hour * 60 + now.tm_min
     away = idle_secs / 60.0
     for i, rule in enumerate(cfg.get("idle_rules", [])):
-        if not _in_window(rule["_from"], rule["_to"], clock):
+        if not _fits_time(rule, now):
             continue
         if away < (rule.get("min_minutes") or 0):
             continue

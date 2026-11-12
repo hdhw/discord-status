@@ -43,8 +43,9 @@ picking music"). You can:
 - **Test a window** to see which rule an app would use right now. This helps when a rule
   doesn't seem to work because another rule above it wins.
 - Set up your away ("afk") status on the **Away** tab. It can say different things
-  depending on the time of day (say, "sleeping" between 11pm and 7am) or how long you've
-  been gone ("afk" at first, "gone for a while" after an hour).
+  depending on the day and time ("in class" on Mon/Wed/Fri mornings, "sleeping" between
+  11pm and 7am) or how long you've been gone ("afk" at first, "gone for a while" after an
+  hour).
 - Change the "no rule fits" status, the popup and your Application ID on the **General**
   tab.
 
@@ -130,12 +131,14 @@ plus any of:
 
 | Field | What it does |
 |---|---|
-| `from` / `to` | Only between these times of day, like `"23:00"` and `"07:00"`. Can cross midnight. |
+| `days` | Only on these days, like `["mon", "wed", "fri"]`. Leave it out for every day. |
+| `from` / `to` | Only between these times of day, like `"23:00"` and `"07:00"`. Can cross midnight; the early-morning part counts as the day it started, so Friday 23:00–07:00 covers Saturday 2am. |
 | `min_minutes` | Only once you've been idle at least this long. |
 | `max_minutes` | Only while you've been idle less than this long. |
 
 ```json
 "idle_rules": [
+  { "days": ["mon", "wed", "fri"], "from": "09:00", "to": "12:00", "details": "in class" },
   { "from": "23:00", "to": "07:00", "details": "sleeping", "state": "zzz" },
   { "min_minutes": 60, "details": "gone for a while" }
 ]

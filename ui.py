@@ -22,6 +22,7 @@ KNOWN_BROWSERS = set(BROWSERS) | {"vivaldi.exe", "librewolf.exe", "zen.exe", "ar
                                   "waterfox.exe", "floorp.exe", "iexplore.exe"}
 ACTIVITY_TYPES = [(0, "Playing"), (2, "Listening to"), (3, "Watching"), (5, "Competing in")]
 POSITIONS = ["bottom-left", "bottom-right", "top-left", "top-right"]
+SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 DISPLAYS = [("details", "Line 1"), ("state", "Line 2"), ("name", "The app name")]
 _REGEX_CHARS = set(".^$*+?{}[]|()")
 
@@ -200,8 +201,34 @@ def _format_minutes(n):
     return "%g min" % n
 
 
+def describe_days(app, days):
+    try:
+        nums = sorted({app.day_number(d) for d in days})
+    except ValueError:
+        return ", ".join(map(str, days))
+    if nums == [0, 1, 2, 3, 4]:
+        return "weekdays"
+    if nums == [5, 6]:
+        return "weekends"
+    groups = []  # runs of consecutive days: Mon–Wed
+    for n in nums:
+        if groups and n == groups[-1][1] + 1:
+            groups[-1][1] = n
+        else:
+            groups.append([n, n])
+    out = []
+    for a, b in groups:
+        if b - a >= 2:
+            out.append("%s–%s" % (SHORT_DAYS[a], SHORT_DAYS[b]))
+        else:
+            out.extend(SHORT_DAYS[a:b + 1])
+    return ", ".join(out)
+
+
 def describe_away_when(app, rule):
     parts = []
+    if rule.get("days"):
+        parts.append(describe_days(app, rule["days"]))
     if rule.get("from") or rule.get("to"):
         try:
             start = app.clock_minutes(rule["from"]) if rule.get("from") else 0
@@ -525,12 +552,39 @@ class AwayDialog:
             except ValueError:
                 return r[key]
 
+        when = ttk.Frame(f)
+        when.grid(row=1, column=0, columnspan=2, sticky="w")
+
+        # days of the week
+        try:
+            days = {app.day_number(d) for d in r.get("days") or []}
+        except ValueError:
+            days = set()
+        self.use_days = tk.BooleanVar(value=bool(days))
+        self.day_vars = [tk.BooleanVar(value=(i in days) if days else i < 5) for i in range(7)]
+        row = ttk.Frame(when)
+        row.grid(row=0, column=0, sticky="w", pady=(8, 0))
+        ttk.Checkbutton(row, text="it's a", variable=self.use_days,
+                        command=self.update_state).pack(side="left")
+        self.day_widgets = []
+        for i, name in enumerate(SHORT_DAYS):
+            check = ttk.Checkbutton(row, text=name, variable=self.day_vars[i])
+            check.pack(side="left", padx=(6 if i == 0 else 0, 2))
+            self.day_widgets.append(check)
+        quick = ttk.Frame(when)
+        quick.grid(row=1, column=0, sticky="w", padx=(22, 0), pady=(4, 0))
+        for text, chosen in (("Weekdays", range(5)), ("Weekends", (5, 6)),
+                             ("Every day", range(7))):
+            button = ttk.Button(quick, text=text, command=lambda c=chosen: self.set_days(c))
+            button.pack(side="left", padx=(0, 6))
+            self.day_widgets.append(button)
+
         # time of day
         self.use_time = tk.BooleanVar(value=bool(r.get("from") or r.get("to")))
         self.start = tk.StringVar(value=clock("from") or "11 PM")
         self.end = tk.StringVar(value=clock("to") or "7 AM")
-        row = ttk.Frame(f)
-        row.grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        row = ttk.Frame(when)
+        row.grid(row=2, column=0, sticky="w", pady=(10, 0))
         ttk.Checkbutton(row, text="it's between", variable=self.use_time,
                         command=self.update_state).pack(side="left")
         self.start_entry = ttk.Entry(row, textvariable=self.start, width=9)
@@ -538,8 +592,10 @@ class AwayDialog:
         ttk.Label(row, text="and").pack(side="left")
         self.end_entry = ttk.Entry(row, textvariable=self.end, width=9)
         self.end_entry.pack(side="left", padx=6)
-        _hint(f, "Like 11pm and 7am, or 23:00 and 07:00. It can go past midnight.",
-              row=2, column=0, columnspan=2, padx=(22, 0))
+        ttk.Label(when, foreground=HINT_FG, wraplength=380, justify="left", text=(
+            "Like 11pm and 7am, or 23:00 and 07:00. It can go past midnight: Friday 11pm "
+            "to 7am still counts as Friday at 2am.")).grid(
+            row=3, column=0, sticky="w", padx=(22, 0))
 
         # how long away
         self.use_min = tk.BooleanVar(value=bool(r.get("min_minutes")))
@@ -596,11 +652,16 @@ class AwayDialog:
         self.update_state()
 
     def update_state(self):
-        for flag, widgets in ((self.use_time, (self.start_entry, self.end_entry)),
+        for flag, widgets in ((self.use_days, self.day_widgets),
+                              (self.use_time, (self.start_entry, self.end_entry)),
                               (self.use_min, (self.low_entry,)),
                               (self.use_max, (self.high_entry,))):
             for widget in widgets:
                 widget.state(["!disabled"] if flag.get() else ["disabled"])
+
+    def set_days(self, chosen):
+        for i, var in enumerate(self.day_vars):
+            var.set(i in chosen)
 
     def show(self):
         _show_dialog(self.win, self.parent)
@@ -611,6 +672,12 @@ class AwayDialog:
 
     def ok(self, _event=None):
         rule = {}
+        if self.use_days.get():
+            days = [self.app.DAY_NAMES[i] for i, var in enumerate(self.day_vars) if var.get()]
+            if not days:
+                return self.fail("Pick at least one day, or untick “it's a”.")
+            if len(days) < 7:  # all seven is the same as not limiting it
+                rule["days"] = days
         if self.use_time.get():
             try:
                 start = self.app.clock_minutes(self.start.get())
@@ -657,8 +724,8 @@ class AwayDialog:
             rule["state"] = state
         if not self.elapsed.get():
             rule["show_elapsed"] = False
-        edited = {"from", "to", "min_minutes", "max_minutes", "type", "details", "state",
-                  "show_elapsed"}
+        edited = {"days", "from", "to", "min_minutes", "max_minutes", "type", "details",
+                  "state", "show_elapsed"}
         for key, value in self.original.items():
             if key not in edited:
                 rule[key] = value
