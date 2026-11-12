@@ -13,9 +13,27 @@ from tkinter import messagebox, ttk
 
 PORTAL_URL = "https://discord.com/developers/applications"
 TITLE = "Discord Status"
-HEADING = ("Segoe UI Semibold", 11)
-HINT_FG = "#6d6f78"
-ERROR_FG = "#c42b1c"
+
+# Discord's dark theme.
+BG = "#313338"          # main content
+SIDEBAR = "#2b2d31"     # settings sidebar, cards, lists
+FIELD = "#1e1f22"       # text inputs
+BAR = "#111214"         # "unsaved changes" bar
+HOVER = "#35373c"
+SELECTED = "#404249"
+BORDER = "#3f4147"
+TEXT = "#dbdee1"
+BRIGHT = "#f2f3f5"
+LABEL = "#b5bac1"
+HINT_FG = "#949ba4"
+DISABLED_FG = "#5c5e66"
+BLURPLE, BLURPLE_HOVER = "#5865f2", "#4752c4"
+GREEN, GREEN_HOVER = "#248046", "#1a6334"
+RED, RED_HOVER = "#da373c", "#a12828"
+GREY, GREY_HOVER = "#4e5058", "#6d6f78"
+ERROR_FG = "#f23f43"
+SUCCESS_FG = "#23a55a"
+FONT = "Segoe UI"
 
 BROWSERS = ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"]
 KNOWN_BROWSERS = set(BROWSERS) | {"vivaldi.exe", "librewolf.exe", "zen.exe", "arc.exe",
@@ -34,10 +52,216 @@ def _set_icon(app, win):
         pass
 
 
+def apply_theme(root):
+    """Style ttk like Discord's dark theme. Safe to call more than once, with any widget."""
+    root = root._root()  # styles belong to the whole Tk app, not one window
+    if getattr(root, "_discord_theme", False):
+        return
+    root._discord_theme = True
+    for name, size, weight in (("TkDefaultFont", 10, "normal"), ("TkTextFont", 10, "normal"),
+                               ("TkHeadingFont", 9, "bold"), ("TkMenuFont", 10, "normal")):
+        try:
+            tkfont.nametofont(name).configure(family=FONT, size=size, weight=weight)
+        except tk.TclError:
+            pass
+
+    style = ttk.Style(root)
+    style.theme_use("clam")  # the built-in theme that lets every color be changed
+    flat = dict(bordercolor=BG, lightcolor=BG, darkcolor=BG)
+
+    style.configure(".", background=BG, foreground=TEXT, troughcolor=FIELD,
+                    selectbackground=BLURPLE, selectforeground="white", font=(FONT, 10),
+                    insertcolor=TEXT, focuscolor=BG, **flat)
+    style.map(".", foreground=[("disabled", DISABLED_FG)])
+    style.configure("TFrame", background=BG)
+    style.configure("TLabel", background=BG, foreground=TEXT)
+    style.configure("Header.TLabel", foreground=LABEL, font=(FONT, 9, "bold"))
+    style.configure("Title.TLabel", foreground=BRIGHT, font=(FONT, 16, "bold"))
+    style.configure("PageTitle.TLabel", foreground=BRIGHT, font=(FONT, 14, "bold"))
+    style.configure("Card.TFrame", background=SIDEBAR)
+    style.configure("Card.TLabel", background=SIDEBAR, foreground=TEXT)
+    style.configure("CardHead.TLabel", background=SIDEBAR, foreground=LABEL,
+                    font=(FONT, 8, "bold"))
+    style.configure("CardTitle.TLabel", background=SIDEBAR, foreground=BRIGHT,
+                    font=(FONT, 10, "bold"))
+    style.configure("Bar.TFrame", background=BG)
+    style.configure("Bar.TLabel", background=BG, foreground=HINT_FG)
+    style.configure("Dirty.TFrame", background=BAR)
+    style.configure("Dirty.TLabel", background=BAR, foreground=TEXT, font=(FONT, 10, "bold"))
+
+    # Buttons: grey by default, blurple for the main action, green to save, red to stop.
+    for name, color, hover in (("TButton", GREY, GREY_HOVER),
+                               ("Primary.TButton", BLURPLE, BLURPLE_HOVER),
+                               ("Success.TButton", GREEN, GREEN_HOVER),
+                               ("Danger.TButton", RED, RED_HOVER)):
+        style.configure(name, background=color, foreground="white", bordercolor=color,
+                        lightcolor=color, darkcolor=color, focuscolor=color, relief="flat",
+                        padding=(14, 5), font=(FONT, 10, "bold" if name != "TButton" else
+                                               "normal"))
+        style.map(name, background=[("disabled", GREY), ("pressed", hover), ("active", hover)],
+                  bordercolor=[("pressed", hover), ("active", hover)],
+                  lightcolor=[("pressed", hover), ("active", hover)],
+                  darkcolor=[("pressed", hover), ("active", hover)],
+                  foreground=[("disabled", HINT_FG)])
+    style.configure("Link.TButton", background=BG, foreground="#00a8fc", bordercolor=BG,
+                    lightcolor=BG, darkcolor=BG, focuscolor=BG, relief="flat", padding=(0, 2))
+    style.map("Link.TButton", background=[("active", BG)], foreground=[("active", "#3ec1ff")],
+              bordercolor=[("active", BG)], lightcolor=[("active", BG)],
+              darkcolor=[("active", BG)])
+    style.configure("DirtyLink.TButton", background=BAR, foreground=TEXT, bordercolor=BAR,
+                    lightcolor=BAR, darkcolor=BAR, focuscolor=BAR, relief="flat",
+                    padding=(10, 5))
+    style.map("DirtyLink.TButton", background=[("active", BAR)], bordercolor=[("active", BAR)],
+              lightcolor=[("active", BAR)], darkcolor=[("active", BAR)],
+              foreground=[("active", "white")])
+
+    # Text inputs: dark, borderless, blurple outline while focused.
+    field = dict(fieldbackground=FIELD, foreground=TEXT, insertcolor=TEXT, bordercolor=FIELD,
+                 lightcolor=FIELD, darkcolor=FIELD, background=FIELD, arrowcolor=LABEL,
+                 selectbackground=BLURPLE, selectforeground="white", padding=(8, 5))
+    focus = [("focus", BLURPLE)]
+    for name in ("TEntry", "TCombobox", "TSpinbox"):
+        style.configure(name, **field)
+        style.map(name, bordercolor=focus, lightcolor=focus, darkcolor=focus,
+                  fieldbackground=[("disabled", "#26272b"), ("readonly", FIELD)],
+                  foreground=[("disabled", DISABLED_FG)],
+                  background=[("active", FIELD), ("disabled", "#26272b")],
+                  arrowcolor=[("disabled", DISABLED_FG), ("active", BRIGHT)])
+    # Read-only dropdowns would otherwise highlight their text in blurple.
+    style.map("TCombobox", selectbackground=[("readonly", FIELD)],
+              selectforeground=[("readonly", TEXT)])
+    root.option_add("*TCombobox*Listbox.background", FIELD)
+    root.option_add("*TCombobox*Listbox.foreground", TEXT)
+    root.option_add("*TCombobox*Listbox.selectBackground", SELECTED)
+    root.option_add("*TCombobox*Listbox.selectForeground", BRIGHT)
+    root.option_add("*TCombobox*Listbox.font", (FONT, 10))
+    root.option_add("*TCombobox*Listbox.borderWidth", 0)
+
+    # Checkboxes: Discord's rounded square, blurple with a white tick when on. Tk's own
+    # indicator draws an X, so these are drawn as images instead.
+    images = root._discord_images = _checkbox_images(root)
+    style.element_create("Discord.Checkbutton.indicator", "image", images["off"],
+                         ("disabled", "selected", images["on_disabled"]),
+                         ("disabled", images["off_disabled"]),
+                         ("selected", images["on"]), sticky="")
+    style.layout("TCheckbutton", [("Checkbutton.padding", {"sticky": "nswe", "children": [
+        ("Discord.Checkbutton.indicator", {"side": "left", "sticky": ""}),
+        ("Checkbutton.focus", {"side": "left", "sticky": "w", "children": [
+            ("Checkbutton.label", {"sticky": "nswe"})]})]})])
+    style.configure("TCheckbutton", background=BG, foreground=TEXT, focuscolor=BG,
+                    padding=(0, 2))
+    style.map("TCheckbutton", background=[("active", BG)],
+              foreground=[("disabled", DISABLED_FG)])
+
+    # Lists.
+    style.configure("Treeview", background=SIDEBAR, fieldbackground=SIDEBAR, foreground=TEXT,
+                    bordercolor=SIDEBAR, lightcolor=SIDEBAR, darkcolor=SIDEBAR, font=(FONT, 10))
+    style.map("Treeview", background=[("selected", SELECTED)],
+              foreground=[("selected", BRIGHT)])
+    style.configure("Treeview.Heading", background=SIDEBAR, foreground=HINT_FG,
+                    bordercolor=SIDEBAR, lightcolor=SIDEBAR, darkcolor=SIDEBAR, relief="flat",
+                    font=(FONT, 8, "bold"), padding=(6, 6))
+    style.map("Treeview.Heading", background=[("active", SIDEBAR)])
+
+    # Thin scrollbars without arrows.
+    style.layout("Vertical.TScrollbar", [("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
+        ("Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
+    style.configure("Vertical.TScrollbar", troughcolor=SIDEBAR, background=FIELD,
+                    bordercolor=SIDEBAR, lightcolor=FIELD, darkcolor=FIELD, gripcount=0,
+                    arrowsize=10)
+    style.map("Vertical.TScrollbar", background=[("active", "#1a1b1e")])
+    style.configure("TSeparator", background=BORDER)
+
+
+def _rgb(color):
+    return tuple(int(color[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _mix(a, b, t):
+    """Blend color a toward b by t (0..1)."""
+    return "#%02x%02x%02x" % tuple(round(x + (y - x) * t) for x, y in zip(_rgb(a), _rgb(b)))
+
+
+def _checkbox_images(root):
+    """Antialiased checkbox images, sized for the screen's scaling."""
+    import math
+    n = max(14, int(round(18 * root.winfo_fpixels("1i") / 96.0)))
+    half, radius = n / 2.0 - 0.5, n * 0.24
+    stroke = max(1.2, n * 0.09)       # border width
+    tick_width = max(1.0, n * 0.085)  # half the tick's thickness
+    tick = [(0.27 * n, 0.52 * n), (0.43 * n, 0.68 * n), (0.74 * n, 0.34 * n)]
+    gap = int(round(n * 0.45))
+
+    def box(px, py):  # signed distance to the rounded square (negative inside)
+        qx, qy = abs(px - n / 2.0) - (half - radius), abs(py - n / 2.0) - (half - radius)
+        return (math.hypot(max(qx, 0), max(qy, 0)) + min(max(qx, qy), 0)) - radius
+
+    def to_tick(px, py):
+        best = 1e9
+        for (ax, ay), (bx, by) in zip(tick, tick[1:]):
+            dx, dy = bx - ax, by - ay
+            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+            best = min(best, math.hypot(px - ax - t * dx, py - ay - t * dy))
+        return best
+
+    def render(fill, border, check):
+        samples, rows = 4, []
+        for y in range(n):
+            row = []
+            for x in range(n):
+                total = [0, 0, 0]
+                for sy in range(samples):
+                    for sx in range(samples):
+                        px, py = x + (sx + 0.5) / samples, y + (sy + 0.5) / samples
+                        d = box(px, py)
+                        color = BG
+                        if d <= 0:
+                            color = border if -d <= stroke else fill
+                            if check and to_tick(px, py) <= tick_width:
+                                color = check
+                        for i, c in enumerate(_rgb(color)):
+                            total[i] += c
+                row.append("#%02x%02x%02x" % tuple(round(c / samples ** 2) for c in total))
+            row.extend([BG] * gap)  # space between the box and its text
+            rows.append("{" + " ".join(row) + "}")
+        image = tk.PhotoImage(master=root, width=n + gap, height=n)
+        image.put(" ".join(rows))
+        return image
+
+    dim_blurple = _mix(BLURPLE, BG, 0.55)
+    return {"off": render(BG, "#80848e", None),
+            "off_disabled": render(BG, BORDER, None),
+            "on": render(BLURPLE, BLURPLE, "#ffffff"),
+            "on_disabled": render(dim_blurple, dim_blurple, _mix("#ffffff", BG, 0.45))}
+
+
+def dark_title_bar(win):
+    """Windows 11: dark title bar matching the window (ignored elsewhere)."""
+    try:
+        import ctypes
+        win.update_idletasks()
+        hwnd = int(win.wm_frame(), 16)
+        dwm = ctypes.windll.dwmapi
+        for attribute, value in ((20, 1),            # DWMWA_USE_IMMERSIVE_DARK_MODE
+                                 (35, 0x00221F1E),   # DWMWA_CAPTION_COLOR, #1e1f22 as BGR
+                                 (36, 0x00E1DEDB)):  # DWMWA_TEXT_COLOR, #dbdee1 as BGR
+            v = ctypes.c_int(value)
+            dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(v), ctypes.sizeof(v))
+    except Exception:
+        pass
+
+
+def _header(parent, text, **kw):
+    """Discord-style section header: small, bold, uppercase."""
+    return ttk.Label(parent, text=text.upper(), style="Header.TLabel", **kw)
+
+
 def _window(app, title):
     root = tk.Tk()
     root.title(title)
     root.resizable(False, False)
+    root.configure(bg=BG)
+    apply_theme(root)
     _set_icon(app, root)
     install_error_report(app, root)
     return root
@@ -60,6 +284,7 @@ def _show_centered(root):
     x = (root.winfo_screenwidth() - w) // 2
     y = (root.winfo_screenheight() - h) // 3
     root.geometry("+%d+%d" % (x, y))
+    dark_title_bar(root)
     # Make sure the window comes to the front when launched from Explorer.
     root.lift()
     root.attributes("-topmost", True)
@@ -68,8 +293,10 @@ def _show_centered(root):
 
 
 def _dialog(app, parent, title, resizable=False):
+    apply_theme(parent)
     win = tk.Toplevel(parent)
     win.withdraw()
+    win.configure(bg=BG)
     win.title(title)
     if parent.winfo_viewable():
         # Not for a hidden parent (opened from the tray): the dialog would stay hidden too.
@@ -93,6 +320,7 @@ def _show_dialog(win, parent):
     y = max(0, min(y, win.winfo_screenheight() - h - 48))
     win.geometry("+%d+%d" % (x, y))
     win.deiconify()
+    dark_title_bar(win)
     if not parent.winfo_viewable():
         win.lift()
         win.attributes("-topmost", True)
@@ -271,7 +499,9 @@ def pick_window(app, parent):
 
     box = ttk.Frame(frame)
     box.pack(fill="both", expand=True)
-    listbox = tk.Listbox(box, width=80, height=15, activestyle="none", exportselection=False)
+    listbox = tk.Listbox(box, width=80, height=15, activestyle="none", exportselection=False,
+                         bg=SIDEBAR, fg=TEXT, selectbackground=SELECTED, selectforeground=BRIGHT,
+                         highlightthickness=0, borderwidth=0, font=(FONT, 10))
     scroll = ttk.Scrollbar(box, orient="vertical", command=listbox.yview)
     listbox.config(yscrollcommand=scroll.set)
     listbox.pack(side="left", fill="both", expand=True)
@@ -296,7 +526,7 @@ def pick_window(app, parent):
     buttons.pack(fill="x", pady=(10, 0))
     ttk.Button(buttons, text="Refresh", command=refresh).pack(side="left")
     ttk.Button(buttons, text="Cancel", command=win.destroy).pack(side="right")
-    ttk.Button(buttons, text="Use this app", command=use).pack(side="right", padx=(0, 8))
+    ttk.Button(buttons, text="Use this app", command=use, style="Primary.TButton").pack(side="right", padx=(0, 8))
     listbox.bind("<Double-Button-1>", use)
     listbox.bind("<Return>", use)
     win.bind("<Escape>", lambda _e: win.destroy())
@@ -324,7 +554,7 @@ class RuleDialog:
         width = 48
 
         # ---- when ----
-        ttk.Label(f, text="When I'm using…", font=HEADING).grid(
+        _header(f, "When I'm using…").grid(
             row=0, column=0, columnspan=2, sticky="w")
 
         ttk.Label(f, text="App").grid(row=1, column=0, sticky="w", padx=(0, 10), pady=(8, 0))
@@ -359,7 +589,7 @@ class RuleDialog:
         ttk.Separator(f).grid(row=8, column=0, columnspan=2, sticky="we", pady=14)
 
         # ---- show ----
-        ttk.Label(f, text="…show this", font=HEADING).grid(row=9, column=0, columnspan=2,
+        _header(f, "…show this").grid(row=9, column=0, columnspan=2,
                                                            sticky="w")
         self.private = tk.BooleanVar(value=bool(r.get("keep_previous")))
         ttk.Checkbutton(f, text="Nothing: leave my status as it was (for private stuff)",
@@ -391,10 +621,14 @@ class RuleDialog:
         check.grid(row=16, column=1, sticky="w", pady=(6, 0))
         self.fields.append(check)
 
-        preview = ttk.Frame(f, padding=(10, 8), relief="solid", borderwidth=1)
-        preview.grid(row=17, column=0, columnspan=2, sticky="we", pady=(12, 0))
-        ttk.Label(preview, text="Preview", foreground=HINT_FG).pack(anchor="w")
-        self.preview = ttk.Label(preview, justify="left", wraplength=420)
+        # Looks like the activity card on a Discord profile.
+        card = ttk.Frame(f, padding=(14, 10), style="Card.TFrame")
+        card.grid(row=17, column=0, columnspan=2, sticky="we", pady=(14, 0))
+        self.preview_head = ttk.Label(card, style="CardHead.TLabel")
+        self.preview_head.pack(anchor="w")
+        self.preview_name = ttk.Label(card, text="Your app name", style="CardTitle.TLabel")
+        self.preview_name.pack(anchor="w", pady=(6, 0))
+        self.preview = ttk.Label(card, justify="left", wraplength=420, style="Card.TLabel")
         self.preview.pack(anchor="w")
 
         self.error = ttk.Label(f, foreground=ERROR_FG, wraplength=420, justify="left")
@@ -403,7 +637,7 @@ class RuleDialog:
         buttons = ttk.Frame(f)
         buttons.grid(row=19, column=0, columnspan=2, sticky="e", pady=(8, 0))
         ttk.Button(buttons, text="Cancel", command=win.destroy).pack(side="right")
-        ttk.Button(buttons, text="OK", command=self.ok).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="OK", command=self.ok, style="Primary.TButton").pack(side="right", padx=(0, 8))
         win.bind("<Return>", self.ok)
         win.bind("<Escape>", lambda _e: win.destroy())
 
@@ -453,10 +687,13 @@ class RuleDialog:
             else:
                 widget.state(["disabled"] if private else ["!disabled"])
         if private:
+            self.preview_head.config(text="PREVIEW")
+            self.preview_name.pack_forget()
             self.preview.config(text="Your status stays on whatever it showed before.")
         else:
-            lines = ["%s  (your app name)" % self.kind.get()]
-            lines += [t for t in (self.details.get().strip(), self.state.get().strip()) if t]
+            self.preview_head.config(text=self.kind.get().upper())
+            self.preview_name.pack(anchor="w", pady=(6, 0), before=self.preview)
+            lines = [t for t in (self.details.get().strip(), self.state.get().strip()) if t]
             self.preview.config(text="\n".join(lines))
 
     def ok(self, _event=None):
@@ -543,7 +780,7 @@ class AwayDialog:
         f.columnconfigure(1, weight=1)
         width = 40
 
-        ttk.Label(f, text="Use this when…", font=HEADING).grid(row=0, column=0, columnspan=2,
+        _header(f, "Use this when…").grid(row=0, column=0, columnspan=2,
                                                               sticky="w")
 
         def clock(key):
@@ -623,7 +860,7 @@ class AwayDialog:
 
         ttk.Separator(f).grid(row=6, column=0, columnspan=2, sticky="we", pady=14)
 
-        ttk.Label(f, text="…show this", font=HEADING).grid(row=7, column=0, columnspan=2,
+        _header(f, "…show this").grid(row=7, column=0, columnspan=2,
                                                            sticky="w")
 
         def field(n, label, widget):
@@ -646,7 +883,7 @@ class AwayDialog:
         buttons = ttk.Frame(f)
         buttons.grid(row=13, column=0, columnspan=2, sticky="e", pady=(8, 0))
         ttk.Button(buttons, text="Cancel", command=win.destroy).pack(side="right")
-        ttk.Button(buttons, text="OK", command=self.ok).pack(side="right", padx=(0, 8))
+        ttk.Button(buttons, text="OK", command=self.ok, style="Primary.TButton").pack(side="right", padx=(0, 8))
         win.bind("<Return>", self.ok)
         win.bind("<Escape>", lambda _e: win.destroy())
         self.update_state()
@@ -737,6 +974,57 @@ class AwayDialog:
 # The rules editor
 # --------------------------------------------------------------------------
 
+class SideNav:
+    """A sidebar like Discord's settings, switching between pages on the right."""
+
+    def __init__(self, parent, title):
+        self.side = tk.Frame(parent, bg=SIDEBAR, width=200)
+        self.side.pack(side="left", fill="y")
+        self.side.pack_propagate(False)
+        tk.Label(self.side, text=title.upper(), bg=SIDEBAR, fg=HINT_FG, anchor="w",
+                 font=(FONT, 8, "bold")).pack(fill="x", padx=(22, 10), pady=(26, 6))
+        self.list = tk.Frame(self.side, bg=SIDEBAR)
+        self.list.pack(fill="x")
+        self.content = ttk.Frame(parent)
+        self.content.pack(side="left", fill="both", expand=True)
+        self.items, self.pages, self.current = {}, {}, None
+
+    def _item(self, parent, text, fg, command):
+        label = tk.Label(parent, text=text, bg=SIDEBAR, fg=fg, anchor="w", font=(FONT, 10),
+                         padx=10, pady=6, cursor="hand2")
+        label.bind("<Button-1>", lambda _e: command())
+        label.bind("<Enter>", lambda _e: label.cget("bg") != SELECTED and
+                   label.config(bg=HOVER, fg=BRIGHT))
+        label.bind("<Leave>", lambda _e: label.cget("bg") != SELECTED and
+                   label.config(bg=SIDEBAR, fg=fg))
+        return label
+
+    def add(self, key, page, title=None):
+        if key not in self.items:
+            label = self._item(self.list, title or key, LABEL, lambda: self.select(key))
+            label.pack(fill="x", padx=12, pady=1)
+            self.items[key] = label
+        self.pages[key] = page
+
+    def footer(self, text, command):
+        label = self._item(self.side, text, HINT_FG, command)
+        label.pack(side="bottom", fill="x", padx=12, pady=(0, 16))
+        tk.Frame(self.side, bg=BORDER, height=1).pack(side="bottom", fill="x", padx=22,
+                                                     pady=(0, 8))
+
+    def select(self, which=None):
+        """Switch to a page (by key or frame); with no argument, return the current frame."""
+        if which is None:
+            return str(self.pages[self.current]) if self.current else ""
+        key = which if which in self.pages else next(
+            k for k, page in self.pages.items() if str(page) == str(which))
+        if self.current in self.pages:
+            self.pages[self.current].pack_forget()
+            self.items[self.current].config(bg=SIDEBAR, fg=LABEL)
+        self.current = key
+        self.pages[key].pack(fill="both", expand=True)
+        self.items[key].config(bg=SELECTED, fg=BRIGHT)
+
 class RulesEditor:
     def __init__(self, app, parent):
         self.app, self.parent = app, parent
@@ -748,29 +1036,83 @@ class RulesEditor:
 
         win = self.win = _dialog(app, parent, "Discord Status rules", resizable=True)
         win.protocol("WM_DELETE_WINDOW", self.close)
-        outer = ttk.Frame(win, padding=12)
-        outer.pack(fill="both", expand=True)
 
-        notebook = self.notebook = ttk.Notebook(outer)
-        notebook.pack(fill="both", expand=True)
-        self.tabs = {}
-        for name, build in (("Rules", self._rules_tab), ("Away", self._away_tab),
-                            ("General", self._general_tab)):
-            self.tabs[name] = build(notebook)
-            notebook.add(self.tabs[name], text="  %s  " % name)
+        self.nav = SideNav(win, "Discord Status")
+        self.nav.footer("Open file in Notepad", self.notepad)
 
-        bottom = ttk.Frame(outer)
-        bottom.pack(fill="x", pady=(10, 0))
-        ttk.Button(bottom, text="Open file in Notepad", command=self.notepad).pack(side="left")
-        self.status = ttk.Label(bottom, foreground=HINT_FG)
-        self.status.pack(side="left", padx=10)
-        ttk.Button(bottom, text="Close", command=self.close).pack(side="right")
-        ttk.Button(bottom, text="Save", command=self.save).pack(side="right", padx=(0, 8))
+        # Discord's settings bar: quiet normally, "Careful — you have unsaved changes!" after an edit.
+        bar = self.bar = ttk.Frame(self.nav.content, style="Bar.TFrame", padding=(16, 10))
+        bar.pack(side="bottom", fill="x", padx=16, pady=(0, 14))
+        self.status = ttk.Label(bar, style="Bar.TLabel")
+        self.status.pack(side="left")
+        self.close_button = ttk.Button(bar, text="Close", command=self.close)
+        self.close_button.pack(side="right")
+        self.save_button = ttk.Button(bar, text="Save Changes", style="Success.TButton",
+                                      command=self.save)
+        self.reset_button = ttk.Button(bar, text="Reset", style="DirtyLink.TButton",
+                                       command=self.reset)
         win.bind("<Control-s>", lambda _e: self.save())
 
+        self.tabs = {}
+        self._build_pages()
+        self.nav.select("Rules")
         self.refresh()
         self.refresh_away()
         self.dirty = False
+
+    PAGES = (("Rules", "Rules"), ("Away", "Away status"), ("General", "General"))
+
+    def _build_pages(self):
+        builders = {"Rules": self._rules_tab, "Away": self._away_tab,
+                    "General": self._general_tab}
+        for key, title in self.PAGES:
+            holder = ttk.Frame(self.nav.content, padding=(28, 22, 24, 10))
+            ttk.Label(holder, text=title, style="PageTitle.TLabel").pack(anchor="w",
+                                                                        pady=(0, 14))
+            builders[key](holder).pack(fill="both", expand=True)
+            old = self.tabs.get(key)
+            self.tabs[key] = holder
+            self.nav.add(key, holder, title)
+            if old is not None:
+                old.destroy()
+
+    def _update_bar(self, saved=False):
+        dirty = self.dirty
+        self.bar.configure(style="Dirty.TFrame" if dirty else "Bar.TFrame")
+        if dirty:
+            self.status.configure(text="Careful — you have unsaved changes!",
+                                  style="Dirty.TLabel", foreground=TEXT)
+            self.close_button.pack_forget()
+            self.save_button.pack(side="right")
+            self.reset_button.pack(side="right", padx=(0, 6))
+        else:
+            self.status.configure(
+                text="Saved! Your status updates in a few seconds." if saved else "",
+                style="Bar.TLabel", foreground=SUCCESS_FG if saved else HINT_FG)
+            self.save_button.pack_forget()
+            self.reset_button.pack_forget()
+            self.close_button.pack(side="right")
+
+    def reset(self):
+        """Throw away unsaved changes and reload the file."""
+        try:
+            cfg = self.app.read_config()
+        except (OSError, ValueError) as e:
+            messagebox.showerror(TITLE, "Couldn't reload the settings file: %s" % e,
+                                 parent=self.win)
+            return
+        page = self.nav.current
+        self.cfg = cfg
+        self.rules = [dict(r) for r in cfg.get("rules", [])]
+        self.away = [dict(r) for r in cfg.get("idle_rules", [])]
+        self.vars = []
+        self.nav.current = None
+        self._build_pages()
+        self.nav.select(page or "Rules")
+        self.refresh()
+        self.refresh_away()
+        self.dirty = False
+        self._update_bar()
 
     def _var(self, kind, value):
         v = kind(value=value)
@@ -786,7 +1128,7 @@ class RulesEditor:
         tree = ttk.Treeview(box, columns=[c[0] for c in columns], show="headings",
                             height=height, selectmode="browse", style="Rules.Treeview")
         for col, text, width in columns:
-            tree.heading(col, text=text, anchor="w")
+            tree.heading(col, text=text.upper(), anchor="w")
             tree.column(col, width=width, minwidth=30, stretch=col != "n", anchor="w")
         scroll = ttk.Scrollbar(box, orient="vertical", command=tree.yview)
         tree.config(yscrollcommand=scroll.set)
@@ -797,7 +1139,7 @@ class RulesEditor:
     # ---- away tab ----
     def _away_tab(self, notebook):
         cfg = self.cfg
-        tab = ttk.Frame(notebook, padding=12)
+        tab = ttk.Frame(notebook)
         tab.columnconfigure(0, weight=1)
         tab.rowconfigure(2, weight=1)
 
@@ -832,10 +1174,11 @@ class RulesEditor:
             if text is None:
                 ttk.Frame(side, height=12).pack()
             else:
-                ttk.Button(side, text=text, command=command, width=16).pack(fill="x", pady=2)
+                ttk.Button(side, text=text, command=command, width=16, style=(
+                    "Primary.TButton" if text == "Add…" else "TButton")).pack(fill="x", pady=2)
 
         idle = cfg.get("idle") or {}
-        ttk.Label(tab, text="If none of those fit", font=HEADING).grid(
+        _header(tab, "If none of those fit").grid(
             row=3, column=0, columnspan=2, sticky="w", pady=(14, 2))
         rest = ttk.Frame(tab)
         rest.grid(row=4, column=0, sticky="we")
@@ -901,7 +1244,7 @@ class RulesEditor:
 
     # ---- rules tab ----
     def _rules_tab(self, notebook):
-        tab = ttk.Frame(notebook, padding=12)
+        tab = ttk.Frame(notebook)
         ttk.Label(tab, wraplength=640, justify="left", text=(
             "Rules are checked from the top down, and the first one that fits the window "
             "you're using sets your status. Put specific rules above general ones.")).grid(
@@ -915,7 +1258,7 @@ class RulesEditor:
                                         height=16, selectmode="browse", style="Rules.Treeview")
         for col, text, width, stretch in (("n", "#", 40, False), ("when", "When I'm using", 300, True),
                                           ("shows", "My status says", 320, True)):
-            tree.heading(col, text=text, anchor="w")
+            tree.heading(col, text=text.upper(), anchor="w")
             tree.column(col, width=width, minwidth=30, stretch=stretch, anchor="w")
         scroll = ttk.Scrollbar(box, orient="vertical", command=tree.yview)
         tree.config(yscrollcommand=scroll.set)
@@ -934,7 +1277,8 @@ class RulesEditor:
             if text is None:
                 ttk.Frame(side, height=12).pack()
             else:
-                ttk.Button(side, text=text, command=command, width=16).pack(fill="x", pady=2)
+                ttk.Button(side, text=text, command=command, width=16, style=(
+                    "Primary.TButton" if text == "Add…" else "TButton")).pack(fill="x", pady=2)
         _hint(tab, "New rules go above the selected one. “Test a window” shows which rule "
                    "an app would use.", row=2, column=0, columnspan=2, pady=(8, 0))
         tab.columnconfigure(0, weight=1)
@@ -958,8 +1302,9 @@ class RulesEditor:
             tree.see(iid)
 
     def changed(self):
-        self.dirty = True
-        self.status.config(text="Unsaved changes", foreground=HINT_FG)
+        if not self.dirty:
+            self.dirty = True
+            self._update_bar()
 
     def add(self):
         rule = RuleDialog(self.app, self.win).show()
@@ -1040,12 +1385,12 @@ class RulesEditor:
     # ---- general tab ----
     def _general_tab(self, notebook):
         cfg = self.cfg
-        tab = ttk.Frame(notebook, padding=14)
+        tab = ttk.Frame(notebook)
         tab.columnconfigure(1, weight=1)
         var = self._var
 
         def section(row, text, pady=(0, 0)):
-            ttk.Label(tab, text=text, font=HEADING).grid(row=row, column=0, columnspan=3,
+            _header(tab, text).grid(row=row, column=0, columnspan=3,
                                                           sticky="w", pady=pady)
 
         def field(row, label, widget, **grid):
@@ -1149,7 +1494,7 @@ class RulesEditor:
     def save(self):
         error = self._apply_general()
         if error:
-            self.notebook.select(self.tabs[error[0]])
+            self.nav.select(error[0])
             messagebox.showerror(TITLE, error[1], parent=self.win)
             return False
         self.cfg["rules"] = self.rules
@@ -1159,8 +1504,7 @@ class RulesEditor:
             messagebox.showerror(TITLE, "Couldn't save: %s" % e, parent=self.win)
             return False
         self.dirty = False
-        self.status.config(text="Saved. Your status updates in a few seconds.",
-                           foreground="#2d7d46")
+        self._update_bar(saved=True)
         return True
 
     def ask_save(self):
@@ -1225,7 +1569,7 @@ def run_setup(app):
     frame.grid(sticky="nsew")
     wrap = 400
 
-    ttk.Label(frame, text="Discord Status", font=("Segoe UI Semibold", 15)).grid(
+    ttk.Label(frame, text="Discord Status", style="Title.TLabel").grid(
         row=0, column=0, columnspan=2, sticky="w")
     ttk.Label(frame, wraplength=wrap, justify="left", text=(
         "Your Discord status will follow whatever you're doing on your PC.\n\n"
@@ -1234,7 +1578,8 @@ def run_setup(app):
         "2.  Copy its Application ID and paste it below.\n"
         "3.  In Discord, go to User Settings → Activity Privacy and turn on "
         "“Share your detected activities with others”.\n\n"
-        "To change your rules later, open this app again while it's running."
+        "Once it's running, click its icon in the system tray (next to the clock) to change "
+        "your rules."
     )).grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 10))
     ttk.Button(frame, text="Open Developer Portal",
                command=lambda: webbrowser.open(PORTAL_URL)).grid(
@@ -1271,7 +1616,7 @@ def run_setup(app):
     buttons = ttk.Frame(frame)
     buttons.grid(row=7, column=0, columnspan=2, sticky="e")
     ttk.Button(buttons, text="Cancel", command=root.destroy).pack(side="right")
-    ttk.Button(buttons, text="Start", command=start).pack(side="right", padx=(0, 8))
+    ttk.Button(buttons, text="Start", command=start, style="Primary.TButton").pack(side="right", padx=(0, 8))
     entry.bind("<Return>", start)
 
     _show_centered(root)
@@ -1286,7 +1631,7 @@ def run_control(app):
     frame = ttk.Frame(root, padding=20)
     frame.grid(sticky="nsew")
 
-    ttk.Label(frame, text="Discord Status is running", font=("Segoe UI Semibold", 13)).grid(
+    ttk.Label(frame, text="Discord Status is running", style="Title.TLabel").grid(
         row=0, column=0, columnspan=3, sticky="w")
     ttk.Label(frame, wraplength=360, justify="left", text=(
         "It's working in the background, with an icon in the system tray (you may need to "
@@ -1314,11 +1659,12 @@ def run_control(app):
         app.request_stop()
         root.destroy()
 
-    ttk.Button(frame, text="Edit rules", command=lambda: open_rules_editor(app, root)).grid(
+    ttk.Button(frame, text="Edit rules", command=lambda: open_rules_editor(app, root),
+               style="Primary.TButton").grid(
         row=3, column=0, sticky="we")
     ttk.Button(frame, text="Open log", command=open_log).grid(row=3, column=1, sticky="we",
                                                               padx=6)
-    ttk.Button(frame, text="Stop", command=stop).grid(row=3, column=2, sticky="we")
+    ttk.Button(frame, text="Stop", command=stop, style="Danger.TButton").grid(row=3, column=2, sticky="we")
     frame.columnconfigure((0, 1, 2), weight=1)
 
     root.bind("<Escape>", lambda _e: root.destroy())
